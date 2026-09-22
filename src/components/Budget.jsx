@@ -1,5 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import './Budget.css';
+
+const CURRENCIES = [
+  { code: 'USD', label: '🇺🇸 US Dollars', symbol: 'USD' },
+  { code: 'ARS', label: '🇦🇷 Argentine Pesos', symbol: 'ARS' },
+  { code: 'ILS', label: '🇮🇱 Shekels', symbol: '₪' }
+];
 
 const CATEGORIES = [
   { key: 'groundTransport', label: '🚗 Ground Transportation' },
@@ -16,6 +22,34 @@ function parseAmount(value) {
 export default function Budget({ tripData }) {
   const budget = tripData?.budget || {};
   const destinations = tripData?.destinations || [];
+
+  const [currency, setCurrency] = useState('USD');
+  const [rates, setRates] = useState(null);
+  const [ratesDate, setRatesDate] = useState('');
+  const [ratesError, setRatesError] = useState(false);
+
+  useEffect(() => {
+    fetch('https://open.er-api.com/v6/latest/USD')
+      .then(res => res.json())
+      .then(data => {
+        if (data.result === 'success') {
+          setRates(data.rates);
+          setRatesDate(new Date(data.time_last_update_unix * 1000).toLocaleDateString());
+        } else {
+          setRatesError(true);
+        }
+      })
+      .catch(() => setRatesError(true));
+  }, []);
+
+  const rate = currency === 'USD' ? 1 : rates?.[currency];
+
+  const formatMoney = (usdAmount) => {
+    if (!rate) return `USD ${usdAmount.toLocaleString()}`;
+    const converted = usdAmount * rate;
+    const symbol = CURRENCIES.find(c => c.code === currency).symbol;
+    return `${symbol} ${Math.round(converted).toLocaleString()}`;
+  };
 
   const totals = {};
   let pending = 0;
@@ -43,22 +77,43 @@ export default function Budget({ tripData }) {
 
       <div className="budget-section">
         <h3>Tracked Costs by Destination</h3>
+
+        <div className="currency-toggle">
+          {CURRENCIES.map(c => (
+            <button
+              key={c.code}
+              className={currency === c.code ? 'active' : ''}
+              onClick={() => setCurrency(c.code)}
+              disabled={c.code !== 'USD' && !rates}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+
         <div className="budget-table">
           {CATEGORIES.map(cat => (
             <div key={cat.key} className="budget-row">
               <span>{cat.label}</span>
-              <span>USD {totals[cat.key].toLocaleString()}</span>
+              <span>{formatMoney(totals[cat.key])}</span>
             </div>
           ))}
         </div>
 
         <div className="budget-summary">
           <span>📊 Tracked Total</span>
-          <span className="total">USD {grandTotal.toLocaleString()}</span>
+          <span className="total">{formatMoney(grandTotal)}</span>
         </div>
 
         {pending > 0 && (
           <p className="budget-note">{pending} item{pending === 1 ? '' : 's'} still marked TBD</p>
+        )}
+
+        {currency !== 'USD' && rate && (
+          <p className="budget-note">Rate: 1 USD = {rate.toLocaleString()} {currency} • updated {ratesDate}</p>
+        )}
+        {ratesError && (
+          <p className="budget-note">Live rates unavailable — showing US dollars only.</p>
         )}
       </div>
 

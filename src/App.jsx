@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { database, ref, onValue, update, auth, signOut } from './firebase';
 import './App.css';
 import RouteMap from './components/RouteMap';
-import ArgentinaMap from './components/ArgentinaMap';
 import GmailSync from './components/GmailSync';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
@@ -164,12 +163,6 @@ export default function App() {
           Route Map
         </button>
         <button
-          className={currentTab === 'map' ? 'active' : ''}
-          onClick={() => setCurrentTab('map')}
-        >
-          Map
-        </button>
-        <button
           className={currentTab === 'destinations' ? 'active' : ''}
           onClick={() => setCurrentTab('destinations')}
         >
@@ -227,8 +220,6 @@ export default function App() {
         )}
 
         {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}
-
-        {currentTab === 'map' && <ArgentinaMap destinations={tripData.destinations} />}
 
         {currentTab === 'destinations' && (
           <DestinationDetail

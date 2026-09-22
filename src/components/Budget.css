@@ -103,3 +103,34 @@
   color: #888;
   font-style: italic;
 }
+
+.currency-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.currency-toggle button {
+  flex: 1;
+  min-width: 100px;
+  padding: 10px 8px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+
+.currency-toggle button.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+}
+
+.currency-toggle button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
