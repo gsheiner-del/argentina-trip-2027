@@ -62,6 +62,22 @@ export default function App() {
     }
   };
 
+  const handleUpdateBooking = (destination, bookingId, link) => {
+    if (userRole === 'edit' && tripData) {
+      const destIndex = tripData.destinations.findIndex(d => d.id === destination);
+      if (bookingId.startsWith('flight-')) {
+        const flightIdx = parseInt(bookingId.split('-')[1]);
+        const path = `trip/destinations/${destIndex}/flights/${flightIdx}/bookingLink`;
+        update(ref(database), { [path]: link });
+      } else {
+        const path = `trip/destinations/${destIndex}/hotels`;
+        const hotelIndex = tripData.destinations[destIndex].hotels.findIndex(h => h.id === bookingId);
+        const bookingPath = `trip/destinations/${destIndex}/hotels/${hotelIndex}/bookingLink`;
+        update(ref(database), { [bookingPath]: link });
+      }
+    }
+  };
+
   if (!isAuthorized) {
     return (
       <div className="app">
@@ -167,6 +183,7 @@ export default function App() {
             destinations={tripData.destinations}
             selectedId={selectedDestination}
             onSelectHotel={handleSelectHotel}
+            onUpdateBooking={handleUpdateBooking}
             userRole={userRole}
           />
         )}

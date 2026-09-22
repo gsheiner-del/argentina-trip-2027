@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import './DestinationDetail.css';
 
-export default function DestinationDetail({ destinations, selectedId, onSelectHotel, userRole }) {
+export default function DestinationDetail({ destinations, selectedId, onSelectHotel, userRole, onUpdateBooking }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
+  const [editingBookingId, setEditingBookingId] = useState(null);
+  const [bookingLink, setBookingLink] = useState('');
 
   const current = destinations?.find(d => d.id === expandedId);
 
@@ -61,7 +63,7 @@ export default function DestinationDetail({ destinations, selectedId, onSelectHo
           {activeTab === 'stays' && (
             <div>
               <h3>Accommodation Options</h3>
-              {current.hotels?.map(hotel => (
+              {current.hotels?.length > 0 ? current.hotels.map(hotel => (
                 <div
                   key={hotel.id}
                   className={`option-card ${current.selectedHotel === hotel.id ? 'selected' : ''}`}
@@ -74,15 +76,48 @@ export default function DestinationDetail({ destinations, selectedId, onSelectHo
                   </div>
                   <p className="hotel-info">{hotel.description}</p>
                   <p className="hotel-status">{hotel.status}</p>
+                  {hotel.bookingLink && (
+                    <div className="booking-link">
+                      <a href={hotel.bookingLink} target="_blank" rel="noopener noreferrer">
+                        🔗 View Booking
+                      </a>
+                    </div>
+                  )}
+                  {userRole === 'edit' && (
+                    <div className="edit-booking">
+                      {editingBookingId === hotel.id ? (
+                        <div className="booking-input">
+                          <input
+                            type="text"
+                            placeholder="Booking.com link or confirmation ID"
+                            value={bookingLink}
+                            onChange={(e) => setBookingLink(e.target.value)}
+                          />
+                          <button onClick={() => {
+                            onUpdateBooking?.(current.id, hotel.id, bookingLink);
+                            setEditingBookingId(null);
+                          }}>Save</button>
+                          <button onClick={() => setEditingBookingId(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => {
+                          setEditingBookingId(hotel.id);
+                          setBookingLink(hotel.bookingLink || '');
+                        }}>
+                          {hotel.bookingLink ? '✏️ Edit Link' : '+ Add Booking Link'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )) : <p>No accommodation options available</p>}
             </div>
           )}
 
           {activeTab === 'flights' && (
             <div>
               <h3>Flights</h3>
-              {current.flights?.map((flight, idx) => (
+              {current.flights?.length > 0 ? current.flights.map((flight, idx) => (
                 <div key={idx} className="flight-card">
                   <div className="flight-header">
                     <h4>{flight.airline} {flight.number}</h4>
@@ -92,8 +127,41 @@ export default function DestinationDetail({ destinations, selectedId, onSelectHo
                     <div><strong>{flight.from}</strong> → {flight.departure}</div>
                     <div><strong>{flight.to}</strong> → {flight.arrival}</div>
                   </div>
+                  {flight.bookingLink && (
+                    <div className="booking-link">
+                      <a href={flight.bookingLink} target="_blank" rel="noopener noreferrer">
+                        🔗 View Booking
+                      </a>
+                    </div>
+                  )}
+                  {userRole === 'edit' && (
+                    <div className="edit-booking">
+                      {editingBookingId === `flight-${idx}` ? (
+                        <div className="booking-input">
+                          <input
+                            type="text"
+                            placeholder="Flight confirmation link or booking number"
+                            value={bookingLink}
+                            onChange={(e) => setBookingLink(e.target.value)}
+                          />
+                          <button onClick={() => {
+                            onUpdateBooking?.(current.id, `flight-${idx}`, bookingLink);
+                            setEditingBookingId(null);
+                          }}>Save</button>
+                          <button onClick={() => setEditingBookingId(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => {
+                          setEditingBookingId(`flight-${idx}`);
+                          setBookingLink(flight.bookingLink || '');
+                        }}>
+                          {flight.bookingLink ? '✏️ Edit Link' : '+ Add Booking Link'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )) : <p>No flights available</p>}
             </div>
           )}
 
