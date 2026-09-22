@@ -165,6 +165,9 @@ export default function App() {
         <button
           className={currentTab === 'budget' ? 'active' : ''}
           onClick={() => setCurrentTab('budget')}
+        >
+          Budget
+        </button>
         <button
           className={currentTab === 'map' ? 'active' : ''}
           onClick={() => setCurrentTab('map')}
