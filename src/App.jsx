@@ -3,6 +3,7 @@ import { database, ref, onValue, update, auth, signOut } from './firebase';
 import './App.css';
 import RouteMap from './components/RouteMap';
 import ArgentinaMap from './components/ArgentinaMap';
+import GmailSync from './components/GmailSync';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
 import LoginPage from './components/LoginPage';
@@ -164,6 +165,12 @@ export default function App() {
         <button
           className={currentTab === 'budget' ? 'active' : ''}
           onClick={() => setCurrentTab('budget')}
+        <button
+          className={currentTab === 'map' ? 'active' : ''}
+          onClick={() => setCurrentTab('map')}
+        >
+          Map
+        </button>
         >
           Budget
         </button>
