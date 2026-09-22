@@ -18,5 +18,7 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Test Gmail importer with synthetic fixtures
+        run: node --test tests/*.test.cjs
       - name: Build
         run: npm run build
