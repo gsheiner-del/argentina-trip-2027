@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import './DestinationDetail.css';
 import CostTracker from './CostTracker';
 
-export default function DestinationDetail({ destinations, selectedId, onSelectHotel, userRole, onUpdateBooking, onUpdateCosts }) {
+export default function DestinationDetail({ destinations, selectedId, userRole, onUpdateBooking, onUpdateCosts, onOpenHotelBookings }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
@@ -76,59 +76,15 @@ export default function DestinationDetail({ destinations, selectedId, onSelectHo
 
         <div className="tab-content">
           {activeTab === 'stays' && (
-            <div>
-              <h3>Accommodation Options</h3>
-              {current.hotels?.length > 0 ? current.hotels.map(hotel => (
-                <div
-                  key={hotel.id}
-                  className={`option-card ${current.selectedHotel === hotel.id ? 'selected' : ''}`}
-                  onClick={() => userRole === 'edit' && onSelectHotel(current.id, hotel.id)}
-                  style={{ cursor: userRole === 'edit' ? 'pointer' : 'default' }}
-                >
-                  <div className="hotel-header">
-                    <h4>{hotel.name}</h4>
-                    {current.selectedHotel === hotel.id && <span className="badge">✓ Selected</span>}
-                  </div>
-                  <p className="hotel-info">{hotel.description}</p>
-                  <p className="hotel-status">{hotel.status}</p>
-                  {hotel.bookingLink && (
-                    <div className="booking-link">
-                      <a href={hotel.bookingLink} target="_blank" rel="noopener noreferrer">
-                        🔗 View Booking
-                      </a>
-                    </div>
-                  )}
-                  {userRole === 'edit' && (
-                    <div className="edit-booking">
-                      {editingBookingId === hotel.id ? (
-                        <div className="booking-input">
-                          <input
-                            type="text"
-                            placeholder="Booking.com link or confirmation ID"
-                            value={bookingLink}
-                            onChange={(e) => setBookingLink(e.target.value)}
-                          />
-                          <button onClick={() => {
-                            onUpdateBooking?.(current.id, hotel.id, bookingLink);
-                            setEditingBookingId(null);
-                          }}>Save</button>
-                          <button onClick={() => setEditingBookingId(null)}>Cancel</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => {
-                          setEditingBookingId(hotel.id);
-                          setBookingLink(hotel.bookingLink || '');
-                        }}>
-                          {hotel.bookingLink ? '✏️ Edit Link' : '+ Add Booking Link'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )) : <p>No accommodation options available</p>}
-            </div>
+            <section className="destination-stays-redirect">
+              <h3>Accommodation in {current.name}</h3>
+              <p>Compare every hotel and alternative for this destination,
+                review cancellation status and see which booking is active.</p>
+              <button type="button" onClick={() => onOpenHotelBookings?.(current.id)}>
+                Open Hotels &amp; bookings
+              </button>
+            </section>
           )}
-
           {activeTab === 'flights' && (
             <div>
               <h3>Flights</h3>
