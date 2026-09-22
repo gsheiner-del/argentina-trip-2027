@@ -96,3 +96,47 @@
   color: #667eea;
   font-weight: bold;
 }
+
+.budget-note {
+  margin: 10px 0 0 0;
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
+
+.currency-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.currency-toggle button {
+  flex: 1;
+  min-width: 100px;
+  padding: 10px 8px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+
+.currency-toggle button.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+}
+
+.currency-toggle button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Reviewable gaps stay visible; missing or mixed-currency entries are not silently counted. */
+.budget-issues { margin-top: 14px; border-left: 4px solid #cc8b32; background: #fff8ec; padding: 12px; border-radius: 6px; color: #80531b; font-size: 12px; line-height: 1.55; }
+.budget-issues summary { margin-top: 8px; cursor: pointer; font-weight: 600; }
+.budget-issues ul { padding-left: 20px; margin: 7px 0 0; }
+.budget-issues li { margin: 4px 0; }
