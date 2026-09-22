@@ -29,7 +29,7 @@ function onlyTripMessage_(subject, body) {
   const hasTripYear = /2027/.test(text);
   const mentionsRegion = /argentin|patagoni|aerolineas|el al|buenos aires|ushuaia|el chalten|el calafate|bariloche|mendoza|iguazu/.test(text);
   const airlineDocument = /el al|aerolineas/.test(text.slice(0, 350)) &&
-    /\\b(bue|eze|aep|ush|fte|mdz|brc)\\b/.test(text);
+    /\b(bue|eze|aep|ush|fte|mdz|brc)\b/.test(text);
   // Carrier seat documents sometimes omit the travel year; stage them for review.
   return mentionsRegion && (hasTripYear || airlineDocument);
 }
