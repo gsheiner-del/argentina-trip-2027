@@ -1,108 +1,20 @@
-.argentina-map-container {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  padding: 20px;
-}
-
-.argentina-map-container h2 {
-  color: #667eea;
-  font-size: 20px;
-  margin: 0;
-}
-
-.map-wrapper {
-  position: relative;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  padding: 20px;
-  overflow: hidden;
-}
-
-.argentina-map-svg {
-  max-width: 100%;
-  height: auto;
-}
-
-.dest-panel {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  background: white;
-  border: 2px solid #667eea;
-  border-radius: 8px;
-  padding: 16px;
-  max-width: 300px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  z-index: 10;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.panel-header h3 {
-  color: #667eea;
-  font-size: 16px;
-  margin: 0;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  color: #999;
-}
-
-.close-btn:hover {
-  color: #333;
-}
-
-.panel-content {
-  font-size: 13px;
-  color: #666;
-}
-
-.dates {
-  font-weight: 600;
-  color: #333;
-  margin: 8px 0;
-}
-
-.description {
-  color: #999;
-  margin: 8px 0;
-}
-
-.hotels {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.hotel-item {
-  background: #f9f9f9;
-  padding: 6px 8px;
-  border-radius: 4px;
-  margin-top: 6px;
-  font-size: 12px;
-}
-
-.map-legend {
-  text-align: center;
-  font-size: 12px;
-  color: #999;
-  padding: 10px;
-}
-
-@media (max-width: 768px) {
-  .dest-panel {
-    position: static;
-    max-width: 100%;
-  }
-}
+.argentina-map-container { display: grid; gap: 16px; }
+.map-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.map-heading h2 { font-size: 22px; margin: 0 0 6px; color: #344f85; }
+.map-heading p { color: #64748b; font-size: 13px; line-height: 1.5; }
+.map-count { background: #edf3fc; color: #305b93; padding: 8px 12px; border-radius: 30px; font-size: 12px; white-space: nowrap; }
+.map-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(225px, 1fr); gap: 14px; min-width: 0; }
+.map-canvas { overflow: hidden; border-radius: 14px; box-shadow: 0 1px 8px #1c33501c; background: #e6eef4; }
+.trip-leaflet-map { height: min(68vh, 650px); min-height: 400px; width: 100%; z-index: 0; }
+.trip-map-marker { background: transparent; border: 0; }
+.trip-map-pin { display: flex; width: 38px; height: 38px; justify-content: center; align-items: center; font-size: 21px; background: #fff; border: 3px solid #276195; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); box-shadow: 0 2px 8px #17375377; }
+.trip-map-pin-selected { border-color: #d45835; }
+.map-stop-list { background: white; border-radius: 14px; padding: 14px; box-shadow: 0 1px 8px #1c33501c; max-height: 650px; overflow-y: auto; }
+.map-stop-list h3 { font-size: 16px; margin-bottom: 12px; }
+.map-stop { display: flex; align-items: center; text-align: left; width: 100%; gap: 10px; border: 1px solid #e5edf5; background: white; border-radius: 10px; padding: 11px; margin-bottom: 8px; cursor: pointer; color: #243449; }
+.map-stop.active, .map-stop:hover { border-color: #4778a8; background: #f1f6fd; }
+.map-stop-number { display: grid; place-items: center; flex: 0 0 24px; height: 24px; background: #2c5f92; color: white; border-radius: 50%; font-size: 12px; }
+.map-stop small { display: block; font-size: 12px; color: #64748b; margin-top: 3px; }
+.map-popup-button { margin-top: 8px; padding: 7px 10px; background: #275e96; border: 0; border-radius: 6px; color: white; cursor: pointer; }
+.map-unmapped { padding: 10px; background: #fff7e6; border-radius: 8px; font-size: 12px; line-height: 1.5; color: #8b5a0f; }
+@media (max-width: 740px) { .map-layout { grid-template-columns: 1fr; } .map-heading { flex-direction: column; } .trip-leaflet-map { min-height: 360px; height: 55vh; } .map-stop-list { max-height: 280px; } }

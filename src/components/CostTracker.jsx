@@ -52,6 +52,10 @@ export default function CostTracker({ destination, userRole, onUpdateCosts }) {
 
   return (
     <div className="cost-tracker">
+      <p style={{ color: '#596c80', fontSize: 12, lineHeight: 1.5 }}>
+        Amounts are USD unless you specify ARS or ILS (e.g. "ARS 5000").
+        Unpriced entries may be marked TBD. Converted totals use the live rates shown on Budget.
+      </p>
       {categories.map(cat => (
         <div key={cat.key} className="cost-category">
           <h4>{cat.label}</h4>
@@ -65,7 +69,7 @@ export default function CostTracker({ destination, userRole, onUpdateCosts }) {
                     className="cost-input"
                     value={item.estimatedCost}
                     onChange={(e) => handleUpdateCost(cat.key, idx, e.target.value)}
-                    placeholder="$0"
+                    placeholder="USD 0 / ARS 5000 / TBD"
                   />
                 ) : (
                   <span className="cost-value">{item.estimatedCost}</span>
@@ -88,7 +92,7 @@ export default function CostTracker({ destination, userRole, onUpdateCosts }) {
                   />
                   <input
                     type="text"
-                    placeholder="$0"
+                    placeholder="USD 0 / ARS 5000 / TBD"
                     value={newCost}
                     onChange={(e) => setNewCost(e.target.value)}
                   />

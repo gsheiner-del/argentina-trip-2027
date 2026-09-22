@@ -134,3 +134,9 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Reviewable gaps stay visible; missing or mixed-currency entries are not silently counted. */
+.budget-issues { margin-top: 14px; border-left: 4px solid #cc8b32; background: #fff8ec; padding: 12px; border-radius: 6px; color: #80531b; font-size: 12px; line-height: 1.55; }
+.budget-issues summary { margin-top: 8px; cursor: pointer; font-weight: 600; }
+.budget-issues ul { padding-left: 20px; margin: 7px 0 0; }
+.budget-issues li { margin: 4px 0; }

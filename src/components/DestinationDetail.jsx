@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './DestinationDetail.css';
 import CostTracker from './CostTracker';
 
@@ -7,6 +7,14 @@ export default function DestinationDetail({ destinations, selectedId, onSelectHo
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
   const [bookingLink, setBookingLink] = useState('');
+
+  // Selecting a pin on the map must change the currently displayed destination.
+  useEffect(() => {
+    if (selectedId && destinations?.some(dest => dest.id === selectedId)) {
+      setExpandedId(selectedId);
+      setActiveTab('stays');
+    }
+  }, [selectedId, destinations]);
 
   const current = destinations?.find(d => d.id === expandedId);
 
@@ -202,16 +210,11 @@ export default function DestinationDetail({ destinations, selectedId, onSelectHo
               ))}
             </div>
           )}
-
           {activeTab === 'costs' && (
             <div>
               <h3>Cost Estimates</h3>
-              <CostTracker
-                key={current.id}
-                destination={current}
-                userRole={userRole}
-                onUpdateCosts={onUpdateCosts}
-              />
+              <CostTracker key={current.id} destination={current}
+                userRole={userRole} onUpdateCosts={onUpdateCosts} />
             </div>
           )}
         </div>
