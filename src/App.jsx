@@ -81,6 +81,20 @@ export default function App() {
     }
   };
 
+  const handleUpdateCosts = async (destinationId, costs) => {
+    // Keep the per-destination Costs tab introduced on main and update only its
+    // own Firebase path, preserving hotel/flight changes made by other editors.
+    if (userRole !== 'edit' || !Array.isArray(tripData?.destinations)) return;
+    const index = tripData.destinations.findIndex((dest) => dest.id === destinationId);
+    if (index < 0) return;
+    try {
+      await set(ref(database, `trip/destinations/${index}/costs`), costs);
+      setDataError('');
+    } catch {
+      setDataError('Could not save destination costs. Check Firebase permissions.');
+    }
+  };
+
   const handleUpdateBooking = (destinationId, bookingId, link) => {
     const index = tripData?.destinations?.findIndex((d) => d.id === destinationId) ?? -1;
     if (index < 0 || userRole !== 'edit') return;
@@ -176,7 +190,8 @@ export default function App() {
           <DestinationDetail
             destinations={destinations} selectedId={selectedDestination}
             onSelectHotel={(id, hotelId) => updateDestination(id, { selectedHotel: hotelId })}
-            onUpdateBooking={handleUpdateBooking} userRole={userRole}
+            onUpdateBooking={handleUpdateBooking}
+            onUpdateCosts={handleUpdateCosts} userRole={userRole}
           />
         )}
         {currentTab === 'budget' && <Budget tripData={tripData} />}
