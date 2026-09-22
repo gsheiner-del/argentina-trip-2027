@@ -133,7 +133,7 @@ export default function App() {
       <header className="header">
         <div className="header-top">
           <div>
-            <h1>🇦🇷 Argentina Trip 2027</h1>
+            <h1>Argentina Trip 2027</h1>
             <p>March 7 - 25, 2027 • 5 Travelers: Gennady, Marina, Michelle, Gilad, Ori</p>
             <p className="user-info">Logged in as: <strong>{displayName}</strong> ({userRole === 'edit' ? '✏️ Edit' : '👁️ View Only'})</p>
           </div>
