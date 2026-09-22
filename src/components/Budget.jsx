@@ -1,12 +1,66 @@
 import React from 'react';
 import './Budget.css';
 
+const CATEGORIES = [
+  { key: 'groundTransport', label: '🚗 Ground Transportation' },
+  { key: 'meals', label: '🍽️ Meals & Dining' },
+  { key: 'activities', label: '🎭 Activities' },
+  { key: 'other', label: '📋 Other' }
+];
+
+function parseAmount(value) {
+  const match = String(value ?? '').replace(/,/g, '').match(/\d+(\.\d+)?/);
+  return match ? parseFloat(match[0]) : null;
+}
+
 export default function Budget({ tripData }) {
   const budget = tripData?.budget || {};
+  const destinations = tripData?.destinations || [];
+
+  const totals = {};
+  let pending = 0;
+  let grandTotal = 0;
+
+  CATEGORIES.forEach(cat => { totals[cat.key] = 0; });
+
+  destinations.forEach(dest => {
+    CATEGORIES.forEach(cat => {
+      (dest.costs?.[cat.key] || []).forEach(item => {
+        const amount = parseAmount(item.estimatedCost);
+        if (amount === null) {
+          pending += 1;
+        } else {
+          totals[cat.key] += amount;
+          grandTotal += amount;
+        }
+      });
+    });
+  });
 
   return (
     <div className="budget-container">
       <h2>💰 Trip Budget</h2>
+
+      <div className="budget-section">
+        <h3>Tracked Costs by Destination</h3>
+        <div className="budget-table">
+          {CATEGORIES.map(cat => (
+            <div key={cat.key} className="budget-row">
+              <span>{cat.label}</span>
+              <span>USD {totals[cat.key].toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="budget-summary">
+          <span>📊 Tracked Total</span>
+          <span className="total">USD {grandTotal.toLocaleString()}</span>
+        </div>
+
+        {pending > 0 && (
+          <p className="budget-note">{pending} item{pending === 1 ? '' : 's'} still marked TBD</p>
+        )}
+      </div>
 
       <div className="budget-section">
         <h3>Breakdown by Category</h3>

@@ -110,6 +110,13 @@ export default function App() {
     }
   };
 
+  const handleUpdateCosts = (destination, costs) => {
+    if (userRole === 'edit' && tripData) {
+      const destIndex = tripData.destinations.findIndex(d => d.id === destination);
+      update(ref(database), { [`trip/destinations/${destIndex}/costs`]: costs });
+    }
+  };
+
   const handleUpdateBooking = (destination, bookingId, link) => {
     if (userRole === 'edit' && tripData) {
       const destIndex = tripData.destinations.findIndex(d => d.id === destination);
@@ -224,6 +231,7 @@ export default function App() {
             selectedId={selectedDestination}
             onSelectHotel={handleSelectHotel}
             onUpdateBooking={handleUpdateBooking}
+            onUpdateCosts={handleUpdateCosts}
             userRole={userRole}
           />
         )}
