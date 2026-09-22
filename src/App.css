@@ -165,6 +165,35 @@ body {
   color: #667eea;
 }
 
+.not-authorized {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  text-align: center;
+  gap: 20px;
+}
+
+.not-authorized h2 {
+  color: #e74c3c;
+  font-size: 28px;
+}
+
+.not-authorized p {
+  color: #666;
+  font-size: 16px;
+  max-width: 600px;
+}
+
+.not-authorized code {
+  background: #f0f0f0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  color: #333;
+}
+
 .footer {
   text-align: center;
   padding: 20px;

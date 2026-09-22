@@ -5,45 +5,78 @@ import RouteMap from './components/RouteMap';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
 
+const ALLOWED_USERS = {
+  gennady: { role: 'edit', display: 'Gennady' },
+  marina: { role: 'edit', display: 'Marina' },
+  michelle: { role: 'view', display: 'Michelle' },
+  gilad: { role: 'view', display: 'Gilad' },
+  ori: { role: 'view', display: 'Ori' }
+};
+
 export default function App() {
   const [currentTab, setCurrentTab] = useState('home');
   const [tripData, setTripData] = useState(null);
   const [selectedDestination, setSelectedDestination] = useState(null);
-  const [userRole, setUserRole] = useState('view'); // 'edit' or 'view'
+  const [userRole, setUserRole] = useState('view');
   const [userName, setUserName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
-    // Load trip data from Firebase
-    const tripRef = ref(database, 'trip');
-    onValue(tripRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setTripData(data);
-      }
-    });
-
-    // Check user on load
+    // Check user on load (case-insensitive)
     const urlParams = new URLSearchParams(window.location.search);
-    const user = urlParams.get('user') || 'guest';
-    setUserName(user);
+    const user = (urlParams.get('user') || 'guest').toLowerCase();
 
-    // Edit access for you and Marina only
-    if (user === 'you' || user === 'marina') {
-      setUserRole('edit');
+    if (ALLOWED_USERS[user]) {
+      setUserName(user);
+      setDisplayName(ALLOWED_USERS[user].display);
+      setUserRole(ALLOWED_USERS[user].role);
+      setIsAuthorized(true);
+
+      // Load trip data from Firebase only if authorized
+      const tripRef = ref(database, 'trip');
+      onValue(tripRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setTripData(data);
+        }
+      });
+    } else {
+      setIsAuthorized(false);
+      setDisplayName('Unknown User');
     }
   }, []);
 
   const handleSelectHotel = (destination, hotelId) => {
     if (userRole === 'edit' && tripData) {
-      const updatedData = {
-        ...tripData,
-        destinations: tripData.destinations.map(d =>
-          d.id === destination ? { ...d, selectedHotel: hotelId } : d
-        )
-      };
-      update(ref(database, 'trip'), updatedData);
+      const destinationPath = `trip/destinations/${tripData.destinations.findIndex(d => d.id === destination)}/selectedHotel`;
+      update(ref(database), { [destinationPath]: hotelId });
     }
   };
+
+  const handleUpdateNote = (destination, note) => {
+    if (userRole === 'edit' && tripData) {
+      const destIndex = tripData.destinations.findIndex(d => d.id === destination);
+      const notePath = `trip/destinations/${destIndex}/notes`;
+      update(ref(database), { [notePath]: note });
+    }
+  };
+
+  if (!isAuthorized) {
+    return (
+      <div className="app">
+        <header className="header">
+          <h1>🇦🇷 Argentina Trip 2027</h1>
+        </header>
+        <div className="not-authorized">
+          <h2>❌ Access Denied</h2>
+          <p>This trip planner is restricted to authorized users only.</p>
+          <p>Authorized users: Gennady, Marina, Michelle, Gilad, Ori</p>
+          <p>Please use a valid URL like: <code>?user=gennady</code></p>
+        </div>
+      </div>
+    );
+  }
 
   if (!tripData) {
     return <div className="loading">Loading trip data...</div>;
@@ -53,8 +86,8 @@ export default function App() {
     <div className="app">
       <header className="header">
         <h1>🇦🇷 Argentina Trip 2027</h1>
-        <p>March 7 - 25, 2027 • 5 Travelers: You, Marina, Michelle & Gilad, Ori</p>
-        <p className="user-info">Logged in as: <strong>{userName}</strong> ({userRole === 'edit' ? '✏️ Edit' : '👁️ View Only'})</p>
+        <p>March 7 - 25, 2027 • 5 Travelers: Gennady, Marina, Michelle, Gilad, Ori</p>
+        <p className="user-info">Logged in as: <strong>{displayName}</strong> ({userRole === 'edit' ? '✏️ Edit' : '👁️ View Only'})</p>
       </header>
 
       <nav className="nav-tabs">
