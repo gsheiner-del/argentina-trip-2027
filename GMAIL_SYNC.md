@@ -23,6 +23,7 @@ review screen. **Nothing in Gmail automatically changes your itinerary.**
   as rejected. **It never silently edits a hotel, flight, route or existing budget.**
 - A cancellation email is flagged for manual handling and cannot be published
   as a confirmed booking.
+- Approved safe summaries appear to authorized family members in the **Reviewed bookings** tab, separate from unapproved source-email metadata.
 
 ## 2. Secure Firebase rules (required before sync)
 
