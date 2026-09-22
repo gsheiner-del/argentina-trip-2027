@@ -154,27 +154,32 @@ export default function App() {
         <button
           className={currentTab === 'home' ? 'active' : ''}
           onClick={() => setCurrentTab('home')}
+        >
           Home
         </button>
         <button
           className={currentTab === 'route' ? 'active' : ''}
           onClick={() => setCurrentTab('route')}
+        >
           Route Map
+        </button>
+        <button
+          className={currentTab === 'map' ? 'active' : ''}
+          onClick={() => setCurrentTab('map')}
+        >
+          Map
         </button>
         <button
           className={currentTab === 'destinations' ? 'active' : ''}
           onClick={() => setCurrentTab('destinations')}
+        >
           Destinations
         </button>
         <button
           className={currentTab === 'budget' ? 'active' : ''}
           onClick={() => setCurrentTab('budget')}
-        </button>
-        <button
-          className={currentTab === 'map' ? 'active' : ''}
-          onClick={() => setCurrentTab('map')}
-          Map
-        </button>
+        >
+          Budget
         </button>
       </nav>
 
@@ -221,9 +226,9 @@ export default function App() {
           </div>
         )}
 
-        {currentTab === 'route' {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}{currentTab === 'route' && <RouteMap destinations={tripData.destinations} />} <RouteMap destinations={tripData.destinations} />}
+        {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}
 
-        {currentTab === 'map' {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}{currentTab === 'route' && <RouteMap destinations={tripData.destinations} />} <ArgentinaMap destinations={tripData.destinations} />}
+        {currentTab === 'map' && <ArgentinaMap destinations={tripData.destinations} />}
 
         {currentTab === 'destinations' && (
           <DestinationDetail
