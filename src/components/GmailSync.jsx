@@ -75,6 +75,7 @@ export default function GmailSync({ currentEmail }) {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [filter, setFilter] = useState('pending');
+  const [syncMeta, setSyncMeta] = useState(null);
 
   useEffect(() => {
     const stopQueue = onValue(ref(database, QUEUE_PATH), (snapshot) => {
@@ -85,7 +86,10 @@ export default function GmailSync({ currentEmail }) {
     const stopApproved = onValue(ref(database, 'trip/bookingSummaries'), (snapshot) => {
       setApproved(snapshot.val() || {});
     }, () => setError('Approved summaries could not be loaded.'));
-    return () => { stopQueue(); stopApproved(); };
+    const stopMeta = onValue(ref(database, 'gmailImport/meta'), (snapshot) => {
+      setSyncMeta(snapshot.val());
+    }, () => setSyncMeta(null));
+    return () => { stopQueue(); stopApproved(); stopMeta(); };
   }, []);
 
   const items = useMemo(() => Object.entries(queue)
@@ -139,6 +143,11 @@ export default function GmailSync({ currentEmail }) {
         Source: Gmail label <strong>Argentina2027</strong>. Sync runs separately through Google Apps Script.
         The importer must be authorized and configured before emails appear here.
         Only safe, manually approved summaries are added to the trip.
+        <p className="gmail-muted">
+          {syncMeta?.lastSyncAt
+            ? `Last completed sync: ${new Date(syncMeta.lastSyncAt).toLocaleString()}; ${syncMeta.newlyStaged || 0} new items on that run.`
+            : 'No completed sync recorded yet. Set a daily trigger in Apps Script (12 AM–1 AM Israel time).'}
+        </p>
       </div>
       <div className="gmail-filter" role="group" aria-label="Review filter">
         {[['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Dismissed']].map(([id, title]) => (
