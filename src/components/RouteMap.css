@@ -1,0 +1,67 @@
+.route-map-container {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.route-map-container h2 {
+  color: #667eea;
+  margin-bottom: 20px;
+}
+
+.route-timeline {
+  position: relative;
+  padding-left: 30px;
+}
+
+.timeline-item {
+  position: relative;
+  margin-bottom: 30px;
+}
+
+.timeline-dot {
+  position: absolute;
+  left: -40px;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #667eea;
+  border: 3px solid white;
+  box-shadow: 0 0 0 2px #667eea;
+}
+
+.timeline-line {
+  position: absolute;
+  left: -34px;
+  top: 16px;
+  width: 2px;
+  height: 60px;
+  background: #e0e0e0;
+}
+
+.timeline-content {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.timeline-date {
+  font-size: 12px;
+  color: #999;
+  font-weight: 600;
+}
+
+.timeline-location {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-top: 4px;
+}
+
+.timeline-description {
+  font-size: 13px;
+  color: #666;
+  margin-top: 4px;
+}

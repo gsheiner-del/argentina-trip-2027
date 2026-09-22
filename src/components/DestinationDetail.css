@@ -1,0 +1,182 @@
+.destination-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dest-selector {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 0;
+}
+
+.dest-btn {
+  padding: 10px 14px;
+  border: 2px solid #e0e0e0;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: all 0.3s;
+}
+
+.dest-btn.active {
+  border-color: #667eea;
+  background: #667eea;
+  color: white;
+}
+
+.destination-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.destination-card h2 {
+  color: #667eea;
+  margin-bottom: 5px;
+}
+
+.dest-dates {
+  color: #999;
+  font-size: 13px;
+  margin-bottom: 15px;
+}
+
+.dest-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 15px 0;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.dest-tabs button {
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.3s;
+}
+
+.dest-tabs button.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+}
+
+.tab-content {
+  margin-top: 15px;
+}
+
+.tab-content h3 {
+  color: #333;
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+
+.option-card,
+.flight-card,
+.activity-card,
+.nearby-card {
+  background: #f9f9f9;
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.option-card:hover,
+.flight-card:hover {
+  background: #f0f0f0;
+  border-color: #667eea;
+}
+
+.option-card.selected {
+  background: #e8ebf8;
+  border-color: #667eea;
+}
+
+.hotel-header,
+.flight-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.hotel-header h4,
+.flight-header h4 {
+  font-size: 14px;
+  color: #333;
+}
+
+.badge {
+  background: #667eea;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.status {
+  font-size: 11px;
+  color: #667eea;
+  font-weight: 600;
+}
+
+.hotel-info,
+.flight-details,
+.activity-card p,
+.nearby-content p {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.hotel-status {
+  font-size: 12px;
+  color: #999;
+}
+
+.date {
+  font-size: 12px;
+  color: #999;
+}
+
+.nearby-card {
+  display: flex;
+  gap: 12px;
+  cursor: default;
+}
+
+.nearby-icon {
+  font-size: 28px;
+  min-width: 40px;
+}
+
+.nearby-content {
+  flex: 1;
+}
+
+.category,
+.distance,
+.rating {
+  font-size: 12px;
+  color: #999;
+}
+
+.description {
+  margin: 6px 0;
+  color: #666;
+}
