@@ -1,0 +1,15 @@
+.approved-bookings { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px #1c33501c; }
+.approved-bookings-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.approved-bookings h2 { color: #344f85; font-size: 21px; margin: 0 0 8px; }
+.approved-bookings-header p { color: #64748b; font-size: 13px; line-height: 1.5; }
+.approved-count { font-size: 12px; background: #eaf5ee; border-radius: 40px; padding: 8px 12px; color: #285c4f; white-space: nowrap; }
+.approved-empty { padding: 25px; border-radius: 10px; background: #f4f7fa; color: #66778b; font-size: 13px; text-align: center; }
+.approved-bookings-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 12px; }
+.approved-booking { border: 1px solid #e1e9f1; border-radius: 10px; padding: 15px; min-width: 0; }
+.approved-booking-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 12px; font-size: 11px; }
+.approved-category { background: #e7f0fb; color: #2f5e94; border-radius: 5px; padding: 5px 7px; }
+.approved-check { color: #328263; text-align: right; }
+.approved-booking h3 { font-size: 16px; margin-bottom: 8px; color: #2b3647; }
+.approved-location, .approved-dates, .approved-notes { font-size: 13px; color: #536274; margin: 7px 0; overflow-wrap: anywhere; }
+.approved-notes { padding-top: 8px; border-top: 1px solid #e7eef5; white-space: pre-wrap; }
+@media(max-width: 700px) { .approved-bookings { padding: 14px; } .approved-bookings-header { flex-direction: column; } }
