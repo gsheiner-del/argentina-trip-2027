@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { database, ref, onValue, update } from './firebase';
+import { database, ref, onValue, update, auth, signOut } from './firebase';
 import './App.css';
 import RouteMap from './components/RouteMap';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
+import LoginPage from './components/LoginPage';
 
-const ALLOWED_USERS = {
-  gennady: { role: 'edit', display: 'Gennady' },
-  marina: { role: 'edit', display: 'Marina' },
-  michelle: { role: 'view', display: 'Michelle' },
-  gilad: { role: 'view', display: 'Gilad' },
-  ori: { role: 'view', display: 'Ori' }
+const USER_WHITELIST = {
+  'gennady@gmail.com': { role: 'edit', display: 'Gennady' },
+  'msheiner@gmail.com': { role: 'edit', display: 'Marina' },
+  'michsheiner@gmail.com': { role: 'view', display: 'Michelle' },
+  'glivne21@gmail.com': { role: 'view', display: 'Gilad' },
+  'ori.sheiner@gmail.com': { role: 'view', display: 'Ori' }
 };
 
 export default function App() {
@@ -18,34 +19,79 @@ export default function App() {
   const [tripData, setTripData] = useState(null);
   const [selectedDestination, setSelectedDestination] = useState(null);
   const [userRole, setUserRole] = useState('view');
-  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check user on load (case-insensitive)
-    const urlParams = new URLSearchParams(window.location.search);
-    const user = (urlParams.get('user') || 'guest').toLowerCase();
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        const email = user.email.toLowerCase();
+        setUserEmail(email);
 
-    if (ALLOWED_USERS[user]) {
-      setUserName(user);
-      setDisplayName(ALLOWED_USERS[user].display);
-      setUserRole(ALLOWED_USERS[user].role);
-      setIsAuthorized(true);
+        if (USER_WHITELIST[email]) {
+          setDisplayName(USER_WHITELIST[email].display);
+          setUserRole(USER_WHITELIST[email].role);
+          setIsAuthorized(true);
 
-      // Load trip data from Firebase only if authorized
-      const tripRef = ref(database, 'trip');
-      onValue(tripRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          setTripData(data);
+          const tripRef = ref(database, 'trip');
+          onValue(tripRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+              setTripData(data);
+            }
+          });
+        } else {
+          setIsAuthorized(false);
+          setDisplayName('Unknown User');
         }
-      });
-    } else {
-      setIsAuthorized(false);
-      setDisplayName('Unknown User');
-    }
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+        setIsAuthorized(false);
+      }
+      setLoading(false);
+    });
+
+    return unsubscribe;
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsAuthenticated(false);
+      setIsAuthorized(false);
+      setTripData(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  if (loading) {
+    return <div className="loading">Loading...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage auth={auth} onLoginSuccess={() => {}} />;
+  }
+
+  if (isAuthenticated && !isAuthorized) {
+    return (
+      <div className="app">
+        <header className="header">
+          <h1>🇦🇷 Argentina Trip 2027</h1>
+        </header>
+        <div className="not-authorized">
+          <h2>❌ Access Denied</h2>
+          <p>Your email ({userEmail}) is not authorized to access this trip planner.</p>
+          <p>This app is restricted to family members only.</p>
+          <button onClick={handleLogout} className="logout-btn">Sign Out</button>
+        </div>
+      </div>
+    );
+  }
 
   const handleSelectHotel = (destination, hotelId) => {
     if (userRole === 'edit' && tripData) {
@@ -101,9 +147,14 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>🇦🇷 Argentina Trip 2027</h1>
-        <p>March 7 - 25, 2027 • 5 Travelers: Gennady, Marina, Michelle, Gilad, Ori</p>
-        <p className="user-info">Logged in as: <strong>{displayName}</strong> ({userRole === 'edit' ? '✏️ Edit' : '👁️ View Only'})</p>
+        <div className="header-top">
+          <div>
+            <h1>🇦🇷 Argentina Trip 2027</h1>
+            <p>March 7 - 25, 2027 • 5 Travelers: Gennady, Marina, Michelle, Gilad, Ori</p>
+            <p className="user-info">Logged in as: <strong>{displayName}</strong> ({userRole === 'edit' ? '✏️ Edit' : '👁️ View Only'})</p>
+          </div>
+          <button onClick={handleLogout} className="logout-btn-header">Sign Out</button>
+        </div>
       </header>
 
       <nav className="nav-tabs">
