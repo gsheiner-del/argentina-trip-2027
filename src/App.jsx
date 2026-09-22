@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { database, ref, onValue, update, auth, signOut } from './firebase';
 import './App.css';
 import RouteMap from './components/RouteMap';
+import ArgentinaMap from './components/ArgentinaMap';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
 import LoginPage from './components/LoginPage';
@@ -211,7 +212,9 @@ export default function App() {
           </div>
         )}
 
-        {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}
+        {currentTab === 'route' {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}{currentTab === 'route' && <RouteMap destinations={tripData.destinations} />} <RouteMap destinations={tripData.destinations} />}
+
+        {currentTab === 'map' {currentTab === 'route' && <RouteMap destinations={tripData.destinations} />}{currentTab === 'route' && <RouteMap destinations={tripData.destinations} />} <ArgentinaMap destinations={tripData.destinations} />}
 
         {currentTab === 'destinations' && (
           <DestinationDetail
