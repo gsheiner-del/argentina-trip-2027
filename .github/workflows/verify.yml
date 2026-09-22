@@ -17,20 +17,8 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Test Gmail importer with synthetic fixtures
         run: node --test tests/*.test.cjs tests/*.test.mjs
-      - name: Export generated lockfile for branch integration (temporary)
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const encoded = fs.readFileSync('package-lock.json').toString('base64');
-          let total = 0;
-          for (let pos = 0; pos < encoded.length; pos += 4000) {
-            console.log('LOCK_CHUNK_' + String(total).padStart(3, '0') + '_' + encoded.slice(pos, pos + 4000));
-            total++;
-          }
-          console.log('LOCK_CHUNKS_TOTAL_' + total);
-          NODE
       - name: Build
         run: npm run build
