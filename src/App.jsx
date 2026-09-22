@@ -7,7 +7,7 @@ import Budget from './components/Budget';
 import LoginPage from './components/LoginPage';
 
 const USER_WHITELIST = {
-  'gennady@gmail.com': { role: 'edit', display: 'Gennady' },
+  'gsheiner@gmail.com': { role: 'edit', display: 'Gennady' },
   'msheiner@gmail.com': { role: 'edit', display: 'Marina' },
   'michsheiner@gmail.com': { role: 'view', display: 'Michelle' },
   'glivne21@gmail.com': { role: 'view', display: 'Gilad' },
