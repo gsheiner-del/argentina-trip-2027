@@ -147,35 +147,27 @@ export default function App() {
         <button
           className={currentTab === 'home' ? 'active' : ''}
           onClick={() => setCurrentTab('home')}
-        >
           Home
         </button>
         <button
           className={currentTab === 'route' ? 'active' : ''}
           onClick={() => setCurrentTab('route')}
-        >
           Route Map
         </button>
         <button
           className={currentTab === 'destinations' ? 'active' : ''}
           onClick={() => setCurrentTab('destinations')}
-        >
           Destinations
         </button>
         <button
           className={currentTab === 'budget' ? 'active' : ''}
           onClick={() => setCurrentTab('budget')}
-        >
-          Budget
         </button>
         <button
           className={currentTab === 'map' ? 'active' : ''}
           onClick={() => setCurrentTab('map')}
-        >
           Map
         </button>
-        >
-          Budget
         </button>
       </nav>
 
