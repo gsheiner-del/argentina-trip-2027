@@ -1,224 +1,136 @@
-# Gmail to Firebase Sync Setup
+# Argentina Trip 2027 — Gmail review and map setup
 
-This script automatically syncs booking confirmation emails from your "Argentina 2027" Gmail label to your Firebase database.
+This branch adds an interactive Leaflet/OpenStreetMap map and an editor-only Gmail
+review screen. **Nothing in Gmail automatically changes your itinerary.**
 
-## Setup Instructions
+## 1. What happens to Gmail messages
 
-### Step 1: Create Google Apps Script
+- Source mailbox: **gsheiner@gmail.com**, label: **Argentina2027** (exact spelling, no space).
+- A time-driven, private Google Apps Script reads labelled threads and stages
+  travel-related 2027 messages in `gmailImport/reviewQueue` in Firebase Realtime Database.
+- It excludes likely verification/one-time-code messages and emails clearly unrelated
+  to the 2027 trip. Not all travel emails contain a year or recognized city; verify
+  the sync log and add a missing reservation manually if needed.
+- The script stores **limited extracted metadata only** (email subject, inferred
+  category/city, arrival timestamp and a Gmail link). It does **not** copy full
+  email bodies, attachments, booking PINs, ticket numbers or confirmation codes.
+- Each Gmail message ID becomes a stable database key. Running the script again
+  does not re-import an already reviewed message or overwrite your decisions.
+  Further messages in an existing thread are separate review items.
+- The editor reviews/edits the summary in the **Gmail review** app tab. Approving
+  writes only an allowlisted, sanitized summary into
+  `trip/bookingSummaries/<message-id>`. Declining merely marks the staging item
+  as rejected. **It never silently edits a hotel, flight, route or existing budget.**
+- A cancellation email is flagged for manual handling and cannot be published
+  as a confirmed booking.
 
-1. Go to: **https://script.google.com**
-2. Click **"New Project"**
-3. Copy & paste the code below into the script editor
+## 2. Secure Firebase rules (required before sync)
 
-### Step 2: Add Firebase Libraries
+The current frontend shows an editor role based on Google email, but a frontend
+role is **not** an authorization boundary. Review your deployed Realtime Database
+rules first, including root-level grants. A permissive rule at a parent cannot
+be restricted by a child rule. If `trip` or the root is world-readable, confidential
+data placed there is also world-readable, regardless of hiding it in the UI.
 
-In the script editor:
-1. Click **"Libraries"** (+ icon)
-2. Paste this ID: `1B7FSrk5Zi6L1rSxxTDgDEUsPzlukDsi4KGuTMorsTQHhGBBDOardT_Qs`
-3. Select **"Add"**
-4. Select version **48** (or latest)
+Below is an **example** complete root-level rule set for this app. Adapt it to
+any other database clients and test it using the Firebase Rules Playground
+**before publishing**. It grants the known family accounts read access and only
+the two editor accounts write access. The staged email metadata and sync status
+are private to editors. Do not add a root `.read: true` or `.write: true` rule.
 
-### Step 3: Configure Firebase
-
-In `script.gs`, update these values with your info:
-
-```javascript
-const CONFIG = {
-  databaseUrl: "https://argentina-trip-2027-default-rtdb.firebaseio.com",
-  firebaseEmail: "YOUR_FIREBASE_SERVICE_ACCOUNT_EMAIL",
-  firebaseKey: "YOUR_FIREBASE_PRIVATE_KEY",
-  gmailLabel: "Argentina 2027"
-};
-```
-
-**How to get Firebase credentials:**
-1. Go to: https://console.firebase.google.com/u/0/project/argentina-trip-2027/settings/serviceaccounts/adminsdk
-2. Click **"Generate New Private Key"**
-3. A JSON file downloads
-4. Open it and copy:
-   - `client_email` → `firebaseEmail`
-   - `private_key` → `firebaseKey`
-
-### Step 4: Set Up Trigger
-
-In the Apps Script editor:
-1. Click the **⏰ Trigger** icon (left sidebar)
-2. Click **"Create new trigger"**
-3. Configure:
-   - Function: `syncGmailToFirebase`
-   - Deployment: `Head`
-   - Event type: `Time-driven`
-   - Frequency: `Every 1 hour` (or your preference)
-4. Click **Save**
-
-### Step 5: Authorize Script
-
-1. Click **Run** → Script will ask for permissions
-2. Click **"Review Permissions"**
-3. Select your Google account
-4. Click **"Allow"**
-
-### Step 6: Test It
-
-1. In Google Apps Script, click **Run**
-2. Check the **Execution log** (bottom)
-3. Go to your app — booking info should sync!
-
----
-
-## Script Code
-
-```javascript
-const CONFIG = {
-  databaseUrl: "https://argentina-trip-2027-default-rtdb.firebaseio.com",
-  firebaseEmail: "YOUR_FIREBASE_SERVICE_ACCOUNT_EMAIL",
-  firebaseKey: "YOUR_FIREBASE_PRIVATE_KEY",
-  gmailLabel: "Argentina 2027"
-};
-
-function syncGmailToFirebase() {
-  try {
-    const label = GmailApp.getUserLabelByName(CONFIG.gmailLabel);
-    if (!label) {
-      Logger.log("Label 'Argentina 2027' not found!");
-      return;
+```json
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "trip": {
+      ".read": "auth != null && auth.token.email_verified === true && (auth.token.email === 'gsheiner@gmail.com' || auth.token.email === 'msheiner@gmail.com' || auth.token.email === 'michsheiner@gmail.com' || auth.token.email === 'glivne21@gmail.com' || auth.token.email === 'ori.sheiner@gmail.com')",
+      ".write": "auth != null && auth.token.email_verified === true && (auth.token.email === 'gsheiner@gmail.com' || auth.token.email === 'msheiner@gmail.com')"
+    },
+    "gmailImport": {
+      ".read": "auth != null && auth.token.email_verified === true && (auth.token.email === 'gsheiner@gmail.com' || auth.token.email === 'msheiner@gmail.com')",
+      ".write": "auth != null && auth.token.email_verified === true && (auth.token.email === 'gsheiner@gmail.com' || auth.token.email === 'msheiner@gmail.com')"
     }
-
-    const threads = label.getThreads(0, 50);
-    const syncedBookings = {};
-
-    for (let thread of threads) {
-      const messages = thread.getMessages();
-      for (let msg of messages) {
-        const subject = msg.getSubject();
-        const body = msg.getPlainBody();
-        const from = msg.getFrom();
-
-        const booking = parseBookingEmail(subject, body, from);
-        if (booking) {
-          syncedBookings[booking.id] = booking;
-        }
-      }
-    }
-
-    if (Object.keys(syncedBookings).length > 0) {
-      const db = FirebaseApp.getDatabaseByUrl(CONFIG.databaseUrl);
-      db.updateData("bookings", syncedBookings);
-      Logger.log(`✅ Synced ${Object.keys(syncedBookings).length} bookings`);
-    }
-
-  } catch (error) {
-    Logger.log("❌ Error: " + error.toString());
   }
-}
-
-function parseBookingEmail(subject, body, from) {
-  // Parse Booking.com
-  if (from.includes("booking.com")) {
-    const confirmMatch = body.match(/Confirmation.*?(\w{7,10})/i);
-    const hotelMatch = body.match(/Hotel[:\s]+([^\n]+)/i);
-    return {
-      id: "booking_" + Date.now(),
-      source: "booking.com",
-      confirmation: confirmMatch ? confirmMatch[1] : "",
-      hotel: hotelMatch ? hotelMatch[1].trim() : "",
-      email: from,
-      subject: subject
-    };
-  }
-
-  // Parse Expedia
-  if (from.includes("expedia")) {
-    const confirmMatch = body.match(/Itinerary.*?(\d{10,})/i);
-    return {
-      id: "expedia_" + Date.now(),
-      source: "expedia",
-      confirmation: confirmMatch ? confirmMatch[1] : "",
-      email: from,
-      subject: subject
-    };
-  }
-
-  // Parse El Al (airline)
-  if (from.includes("elal") || subject.includes("El Al")) {
-    const confirmMatch = body.match(/Booking Reference[:\s]+([A-Z0-9]{6})/i);
-    return {
-      id: "elal_" + Date.now(),
-      source: "El Al",
-      confirmation: confirmMatch ? confirmMatch[1] : "",
-      airline: "El Al",
-      email: from,
-      subject: subject
-    };
-  }
-
-  // Parse Aerolineas (airline)
-  if (subject.includes("Aerolineas") || from.includes("aerolineas")) {
-    const confirmMatch = body.match(/CONFIRMATION[:\s]+([A-Z0-9]{6,8})/i);
-    return {
-      id: "aerolineas_" + Date.now(),
-      source: "Aerolineas",
-      confirmation: confirmMatch ? confirmMatch[1] : "",
-      airline: "Aerolineas",
-      email: from,
-      subject: subject
-    };
-  }
-
-  return null;
-}
-
-function testSync() {
-  syncGmailToFirebase();
 }
 ```
 
----
+These example rules intentionally restrict direct reads even for someone with
+your public application URL. Because service accounts with administrative IAM
+access can bypass normal database client security rules, **the Gmail script
+credentials must remain private**, and should be managed using the principle
+of least privilege.
 
-## How It Works
+## 3. Create your private Google Apps Script
 
-1. **Automatic Syncing**: Runs every hour (configurable)
-2. **Email Parsing**: Extracts:
-   - Hotel/airline names
-   - Confirmation codes
-   - Booking references
-   - Dates (from subject lines)
-3. **Firebase Storage**: Stores in `bookings/` node
-4. **App Integration**: Your Argentina Trip app reads bookings automatically
+1. Sign in to **gsheiner@gmail.com**, open <https://script.google.com>, and create
+   a new project, e.g. `Argentina2027 Gmail Sync`.
+2. Copy **`scripts/gmail-to-firebase.gs`** from this repository into the Apps
+   Script editor. Do NOT paste a private key into the script or commit it to GitHub.
+3. In Firebase Console, select project `argentina-trip-2027`, and under Project
+   settings → Service accounts, generate a *dedicated* service-account credential
+   with the minimum required access for this importer. Restrict who can read
+   the Apps Script project. Keep and protect the generated JSON file.
+4. In Apps Script → Project Settings → Script Properties, create:
+   `FIREBASE_SERVICE_ACCOUNT_JSON` = the **entire** JSON credentials object
+   on one line (valid JSON, including escaped newlines in its private key).
+   Keep access to the Apps Script project limited to yourself.
+5. Check that the mailbox really contains the Gmail label
+   `Argentina2027` (not `Argentina 2027`). The function also verifies the
+   executing Gmail account is `gsheiner@gmail.com`.
+6. Run `syncGmailToFirebase` once in the Apps Script editor and grant only the
+   permissions you recognize (Gmail read, URL fetch, script properties, etc.).
+   Check the execution log for the number of newly staged messages.
+7. Log in to the app with an editor account and open **Gmail review**. Confirm
+   that only travel-related pending items appear. Review each one against its
+   original Gmail message; records with multiple city names will need manual
+   location entry.
+8. Apps Script → Triggers → Add Trigger:
+   - function `syncGmailToFirebase`;
+   - event source `Time-driven`;
+   - frequency `Hour timer`, `Every hour`.
+   Hourly runs are automatic *only after you add and authorize this trigger*.
+9. On future emails, apply the label `Argentina2027`. The next scheduled
+   run imports newly labelled messages. Removing the label does **not**
+   delete previously staged records; dismiss them manually.
 
----
+**Caution:** a service-account key is highly sensitive. Never email it,
+upload it in this chat or copy it into GitHub/Vercel frontend environment variables.
+Rotate/revoke it in Google Cloud if exposed. Apps Script project editors can
+generally view its Script Properties and execution code, so do not share this
+Apps Script project with trip participants.
 
-## Manual Upload Alternative
+## 4. Map
 
-If you prefer not to use Google Apps Script:
+The Map tab now uses **React Leaflet + OpenStreetMap**. Its ordered stops
+come from your existing `trip/destinations` array in Firebase. Existing
+destination IDs/names such as Buenos Aires, Ushuaia, El Chaltén, El Calafate,
+Bariloche, and Mendoza have approximate city-center fallback coordinates.
 
-1. Go to your Gmail "Argentina 2027" label
-2. In the app, go to **Destinations** tab
-3. Click **"+ Add Booking Link"** on any hotel/flight
-4. Paste the booking.com link or confirmation code
-5. It syncs to Firebase instantly!
+To place a destination at an exact, confirmed location, add:
 
----
+```json
+{
+  "id": "calafate",
+  "name": "El Calafate",
+  "coordinates": { "lat": -50.3379, "lng": -72.2648 }
+}
+```
 
-## Troubleshooting
+The fallback is only for the city, not for hotel addresses. A destination
+with no recognized name or coordinates is listed as `Location needed`, not
+placed at an invented coordinate. Dashed lines indicate stop order; they
+are not real flight paths or driving routes. OpenStreetMap contributors'
+attribution appears on the map.
 
-**"Label not found"**
-- Ensure label is named exactly: `Argentina 2027`
+## 5. Review before release
 
-**"Firebase error"**
-- Double-check service account credentials
-- Make sure Firebase has Realtime Database enabled
+Run `npm install` and `npm run build`. Test Google login for an editor and
+a view-only family member, responsive map behavior, editing an existing hotel
+link, the review permissions, duplicate mail handling, and approvals/rejections
+in a test database. Test failed/unauthorized database operations too.
 
-**"No bookings synced"**
-- Check the Execution Log in Apps Script
-- Verify emails exist in the "Argentina 2027" label
-
----
-
-## Support
-
-For issues:
-1. Check the **Execution Log** in Google Apps Script
-2. Enable **Debug Mode** in script.gs
-3. See Firebase console: https://console.firebase.google.com/u/0/project/argentina-trip-2027/database
-
+**Do not merge or send the preview URL to family before verifying Firebase
+rules**, because booking metadata is private. The published Vercel project's
+production repository is `gsheiner-del/argentina-trip-2027`, and this feature
+is built only on the `feature/map-gmail-review` branch until approved.
