@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { COST_CATEGORIES, aggregateCosts } from '../utils/budget';
+import { COST_CATEGORIES, aggregateCosts, convertPlanningEstimate } from '../utils/budget';
+import { fetchUsdQuote, currentDisplay, formatMoney, FX_ATTRIBUTION_URL } from '../utils/fx';
 import './Budget.css';
 
 const CURRENCIES = [
-  { code: 'USD', label: '🇺🇸 US Dollars', symbol: 'USD' },
-  { code: 'ARS', label: '🇦🇷 Argentine Pesos', symbol: 'ARS' },
-  { code: 'ILS', label: '🇮🇱 Shekels', symbol: '₪' }
+  { code: 'USD', label: '🇺🇸 USD' },
+  { code: 'ARS', label: '🇦🇷 ARS' },
+  { code: 'ILS', label: '🇮🇱 ILS' }
 ];
 const LEGACY_ITEMS = [
   ['internationalFlights', '✈️ International Flights'],
@@ -16,143 +17,153 @@ const LEGACY_ITEMS = [
   ['meals', '🍽️ Meals & Dining'],
   ['other', '📱 Other']
 ];
+function hotelTotalUsd(tripData) {
+  const records = tripData?.hotelBookings || {};
+  const selection = tripData?.hotelSelections || {};
+  const activeIds = new Set(Object.values(selection).filter(Boolean));
+  let total = 0, count = 0;
+  for (const record of Object.values(records)) {
+    if (record && activeIds.has(record.id) && record.status !== 'cancelled' &&
+        Number.isFinite(record.priceUsd) && record.priceUsd >= 0) {
+      count++;
+      total += record.priceUsd;
+    }
+  }
+  return { total, count };
+}
 
 export default function Budget({ tripData }) {
   const budget = tripData?.budget || {};
   const destinations = tripData?.destinations || [];
   const [currency, setCurrency] = useState('USD');
-  const [rates, setRates] = useState(null);
-  const [ratesDate, setRatesDate] = useState('');
-  const [ratesError, setRatesError] = useState(false);
+  const [quote, setQuote] = useState(null);
+  const [fxError, setFxError] = useState('');
+  const [fxLoading, setFxLoading] = useState(true);
+
+  const refreshQuote = async () => {
+    setFxLoading(true);
+    setFxError('');
+    try {
+      setQuote(await fetchUsdQuote());
+    } catch (error) {
+      setFxError(error.message || 'Current exchange rates could not be loaded.');
+    } finally {
+      setFxLoading(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
-    fetch('https://open.er-api.com/v6/latest/USD')
-      .then((res) => {
-        if (!res.ok) throw new Error('Rate API not available');
-        return res.json();
-      })
-      .then((data) => {
-        if (!active) return;
-        if (data.result === 'success' && Number.isFinite(data.rates?.ARS) &&
-            Number.isFinite(data.rates?.ILS) && data.rates.ARS > 0 && data.rates.ILS > 0) {
-          setRates(data.rates);
-          setRatesDate(data.time_last_update_unix
-            ? new Date(data.time_last_update_unix * 1000).toLocaleDateString()
-            : 'date unavailable');
-          setRatesError(false);
-        } else {
-          setRatesError(true);
-        }
-      })
-      .catch(() => { if (active) setRatesError(true); });
+    fetchUsdQuote()
+      .then((q) => { if (active) setQuote(q); })
+      .catch((error) => { if (active) setFxError(error.message); })
+      .finally(() => { if (active) setFxLoading(false); });
     return () => { active = false; };
   }, []);
 
-  const report = useMemo(() => aggregateCosts(destinations, rates), [destinations, rates]);
-  const rate = currency === 'USD' ? 1 : rates?.[currency];
-  const formatMoney = (usdAmount) => {
-    const selected = CURRENCIES.find((c) => c.code === currency);
-    const converted = usdAmount * (Number.isFinite(rate) && rate > 0 ? rate : 1);
-    return `${Number.isFinite(rate) && rate > 0 ? selected.symbol : 'USD'} ${converted.toLocaleString(
-      undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }
-    )}`;
+  const report = useMemo(() => aggregateCosts(destinations, quote), [destinations, quote]);
+  const hotelReport = useMemo(() => hotelTotalUsd(tripData), [tripData]);
+  const converted = (amountUsd) => {
+    const result = currentDisplay(amountUsd, currency, quote);
+    return result === null ? 'Exchange rate unavailable' : formatMoney(result, currency);
   };
-  const missingRates = report.issues.filter((issue) => issue.state === 'rate_missing').length;
-  const missingValues = report.issues.filter((issue) => issue.state === 'pending').length;
-  const invalidValues = report.issues.filter((issue) => issue.state === 'invalid').length;
-
+  const convertedEstimate = (amount) => convertPlanningEstimate(amount, currency, quote);
+  const pendingCount = report.issues.filter(x => x.state === 'pending').length;
+  const invalidCount = report.issues.filter(x => x.state === 'invalid').length;
+  const missingCount = report.issues.filter(x => x.state === 'rate_missing').length;
   return (
     <div className="budget-container">
       <h2>💰 Trip Budget</h2>
+      <div className="currency-toggle" aria-label="Currency for entire Budget page">
+        {CURRENCIES.map((c) => (
+          <button key={c.code} type="button"
+            aria-pressed={currency === c.code} className={currency === c.code ? 'active' : ''}
+            onClick={() => setCurrency(c.code)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <div className="budget-fx-banner">
+        {quote
+          ? <>Daily reference rate published {new Date(quote.rateTimestamp).toLocaleString()}.
+              Display uses the latest available published quote; amounts saved in Costs retain their
+              entry-time USD value. <button onClick={refreshQuote} disabled={fxLoading}>Refresh rate</button></>
+          : <>{fxLoading ? 'Loading exchange rates…' : 'Reference rates unavailable.'}
+              <button onClick={refreshQuote} disabled={fxLoading}>Retry rates</button></>}
+        {fxError && <p role="alert">{fxError}</p>}
+        <p><a href={FX_ATTRIBUTION_URL} target="_blank" rel="noopener noreferrer">
+          Rates by ExchangeRate-API</a> · indicative, not your card's actual conversion rate.</p>
+      </div>
+
       <section className="budget-section">
         <h3>Tracked costs by destination</h3>
-        <p className="budget-note">Amounts without a currency are treated as USD. Enter
-          ARS or ILS explicitly to convert them before aggregation. The totals below
-          contain only destination Costs entries, not the older planning estimates.</p>
-        <div className="currency-toggle" aria-label="Display currency">
-          {CURRENCIES.map((c) => (
-            <button type="button" key={c.code}
-              className={currency === c.code ? 'active' : ''}
-              aria-pressed={currency === c.code}
-              onClick={() => setCurrency(c.code)}
-              disabled={c.code !== 'USD' && !rates}>
-              {c.label}
-            </button>
-          ))}
-        </div>
+        <p className="budget-note">
+          New entries retain the exchange rate published when saved. Older ARS/ILS entries
+          without a snapshot are provisional and use the latest published rate.
+        </p>
         <div className="budget-table">
-          {COST_CATEGORIES.map((cat) => (
+          {COST_CATEGORIES.map(cat => (
             <div key={cat.key} className="budget-row">
               <span>{cat.label}</span>
-              <span>{formatMoney(report.totals[cat.key])}</span>
+              <span>{converted(report.totals[cat.key])}</span>
             </div>
           ))}
         </div>
         <div className="budget-summary">
-          <span>📊 Tracked total ({report.included} priced items)</span>
-          <span className="total">{formatMoney(report.grandTotal)}</span>
+          <span>📊 Tracked total · {report.included} priced items</span>
+          <span className="total">{converted(report.grandTotal)}</span>
         </div>
-        {report.trackedItems === 0 && <p className="budget-note">No individual costs entered yet.</p>}
+        {report.provisionalCount > 0 &&
+          <p className="budget-note">{report.provisionalCount} legacy foreign-currency item(s)
+            do not have a saved exchange-rate snapshot. Edit and save them to lock in a rate.</p>}
         {report.issues.length > 0 && (
           <div className="budget-issues" role="status">
-            <strong>Incomplete tracked total:</strong> {missingValues} TBD,
-            {' '}{invalidValues} invalid amounts, {missingRates} awaiting exchange rates.
-            <details>
-              <summary>Show excluded cost items</summary>
-              <ul>
-                {report.issues.map((issue, index) => (
-                  <li key={index}>
-                    {issue.destination}: {issue.item} — {issue.state === 'rate_missing'
-                      ? `exchange rate for ${issue.currency} unavailable`
-                      : issue.state === 'pending' ? 'TBD' : 'enter a numeric amount and optional USD/ARS/ILS'}
-                  </li>
-                ))}
-              </ul>
-            </details>
+            <strong>Incomplete tracked total:</strong> {pendingCount} TBD,
+            {' '}{invalidCount} invalid and {missingCount} without rates.
+            <details><summary>Excluded items</summary><ul>
+              {report.issues.map((issue, index) => (
+                <li key={index}>{issue.destination}: {issue.item} — {issue.state === 'rate_missing'
+                  ? 'rate missing for ' + issue.currency : issue.state}</li>
+              ))}
+            </ul></details>
           </div>
-        )}
-        {rates && (
-          <p className="budget-note">Indicative rates: 1 USD = {rates.ARS.toLocaleString()} ARS /
-            {' '}{rates.ILS.toLocaleString()} ILS; updated {ratesDate}.
-            Actual card/bank rates and fees may differ.</p>
-        )}
-        {ratesError && (
-          <p className="budget-note" role="status">Live FX rates unavailable.
-            Display remains in USD; ARS/ILS expense entries are excluded until rates load.</p>
         )}
       </section>
 
       <section className="budget-section">
-        <h3>Existing planning estimates (separate)</h3>
-        <p className="budget-note">Reference figures saved in the original budget.
-          They are not included in the tracked total above to avoid double counting.</p>
+        <h3>Breakdown by category · original planning estimates</h3>
+        <p className="budget-note">All convertible rows follow the currency selector above.
+          These are planning estimates, not additional expenses in the tracked total.</p>
         <div className="budget-table">
           {LEGACY_ITEMS.map(([key, label]) => (
-            <div className="budget-row" key={key}>
-              <span>{label}</span><span>{budget[key] || 'TBD'}</span>
+            <div key={key} className="budget-row">
+              <span>{label}</span><span>{convertedEstimate(budget[key])}</span>
             </div>
           ))}
         </div>
         <div className="budget-summary">
           <span>📊 Original estimated total</span>
-          <span className="total">{budget.total || 'Not calculated'}</span>
+          <span className="total">{convertedEstimate(budget.total)}</span>
         </div>
       </section>
 
       <section className="budget-section">
-        <h3>Michelle & Gilad share</h3>
-        <p className="budget-note">Original planning estimate only.
-          No expense-allocation rules have been configured for the new tracked costs.</p>
-        <div className="budget-table">
-          <div className="budget-row">
-            <span>Original personal-cost estimate</span>
-            <span>{budget.daughterShare || 'Not calculated'}</span>
-          </div>
-          <div className="budget-row">
-            <span>Shared transfers</span>
-            <span>{budget.sharedTransferPayer || 'See trip arrangement'}</span>
-          </div>
+        <h3>Active hotel reservations (reference only)</h3>
+        <p className="budget-note">Only selected, non-cancelled reservations that have a saved
+          USD equivalent are shown. Not added to the tracked total to avoid double counting.</p>
+        <div className="budget-row">
+          <span>{hotelReport.count} selected imported hotel booking(s)</span>
+          <span>{converted(hotelReport.total)}</span>
+        </div>
+      </section>
+
+      <section className="budget-section">
+        <h3>Michelle &amp; Gilad share</h3>
+        <p className="budget-note">Original planning estimate. Detailed cost-sharing
+          rules for new tracked expenses have not been defined.</p>
+        <div className="budget-row">
+          <span>Personal-cost estimate</span>
+          <span>{convertedEstimate(budget.daughterShare)}</span>
         </div>
       </section>
     </div>
