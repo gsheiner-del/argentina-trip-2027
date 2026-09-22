@@ -6,6 +6,7 @@ import ArgentinaMap from './components/ArgentinaMap';
 import GmailSync from './components/GmailSync';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
+import ApprovedBookings from './components/ApprovedBookings';
 import LoginPage from './components/LoginPage';
 
 const USER_WHITELIST = {
@@ -131,7 +132,7 @@ export default function App() {
       <nav className="nav-tabs" aria-label="Trip sections">
         {[
           ['home', 'Home'], ['route', 'Route'], ['destinations', 'Destinations'],
-          ['map', 'Interactive map'], ['budget', 'Budget'],
+          ['map', 'Interactive map'], ['budget', 'Budget'], ['bookings', 'Reviewed bookings'],
           ...(userRole === 'edit' ? [['gmail', 'Gmail review']] : [])
         ].map(([id, label]) => (
           <button key={id} className={currentTab === id ? 'active' : ''}
@@ -146,6 +147,7 @@ export default function App() {
               <h2>Trip overview</h2>
               <div className="summary-item"><span>Travelers</span><span>5 people</span></div>
               <div className="summary-item"><span>Route stops</span><span>{destinations.length}</span></div>
+              <div className="summary-item"><span>Reviewed bookings</span><span>{Object.keys(tripData.bookingSummaries || {}).length}</span></div>
               <div className="summary-item"><span>Status</span><span>Planning in progress</span></div>
             </section>
             <section className="quick-route">
@@ -178,6 +180,7 @@ export default function App() {
           />
         )}
         {currentTab === 'budget' && <Budget tripData={tripData} />}
+        {currentTab === 'bookings' && <ApprovedBookings bookingSummaries={tripData.bookingSummaries} />}
         {currentTab === 'gmail' && userRole === 'edit' &&
           <GmailSync currentEmail={userEmail} />}
       </main>
