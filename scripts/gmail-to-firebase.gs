@@ -28,15 +28,19 @@ function onlyTripMessage_(subject, body) {
   if (/verification code|verify email|one.time (code|password)|security code|sign.in code/.test(text.slice(0, 500))) return false;
   const hasTripYear = /2027/.test(text);
   const mentionsRegion = /argentin|patagoni|aerolineas|el al|buenos aires|ushuaia|el chalten|el calafate|bariloche|mendoza|iguazu/.test(text);
-  // Emails from other trips occasionally carry the same label. Avoid importing them.
-  return hasTripYear && mentionsRegion;
+  const airlineDocument = /el al|aerolineas/.test(text.slice(0, 350)) &&
+    /\\b(bue|eze|aep|ush|fte|mdz|brc)\\b/.test(text);
+  // Carrier seat documents sometimes omit the travel year; stage them for review.
+  return mentionsRegion && (hasTripYear || airlineDocument);
 }
 
 function category_(subject, body) {
+  const title = clean_(subject);
   const text = clean_(subject + ' ' + body.slice(0, 1400));
   if (/electronic miscellaneous document|chargeable seat/.test(text)) return 'flight_extra';
-  if (/flight|itinerary|e.ticket|el al|aerolineas|boarding/.test(text)) return 'flight';
-  if (/transfer|rent.a.car|car rental|shuttle/.test(text)) return 'transport';
+  if (/booking.+(?:hotel|apartment|apart|alojamiento)|confirmed at|booking canceled/.test(title)) return 'hotel';
+  if (/flight|itinerary|e.ticket|el al|aerolineas|boarding/.test(title)) return 'flight';
+  if (/transfer|rent.a.car|car rental|shuttle/.test(title)) return 'transport';
   if (/booking|apartment|hotel|stay|alojamiento|cabanas|apart/.test(text)) return 'hotel';
   return 'other';
 }
