@@ -124,22 +124,6 @@ export default function App() {
     }
   };
 
-  if (!isAuthorized) {
-    return (
-      <div className="app">
-        <header className="header">
-          <h1>🇦🇷 Argentina Trip 2027</h1>
-        </header>
-        <div className="not-authorized">
-          <h2>❌ Access Denied</h2>
-          <p>This trip planner is restricted to authorized users only.</p>
-          <p>Authorized users: Gennady, Marina, Michelle, Gilad, Ori</p>
-          <p>Please use a valid URL like: <code>?user=gennady</code></p>
-        </div>
-      </div>
-    );
-  }
-
   if (!tripData) {
     return <div className="loading">Loading trip data...</div>;
   }
