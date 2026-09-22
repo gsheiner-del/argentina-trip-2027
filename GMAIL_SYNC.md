@@ -89,8 +89,10 @@ of least privilege.
 8. Apps Script → Triggers → Add Trigger:
    - function `syncGmailToFirebase`;
    - event source `Time-driven`;
-   - frequency `Hour timer`, `Every hour`.
-   Hourly runs are automatic *only after you add and authorize this trigger*.
+   - frequency `Day timer`, choose `12 AM to 1 AM`;
+   - Project Settings → Time zone: `Asia/Jerusalem`.
+   Daily runs are automatic *only after you add and authorize this trigger*.
+   Apps Script selects an execution time within the chosen hour rather than guaranteeing 00:00.
 9. On future emails, apply the label `Argentina2027`. The next scheduled
    run imports newly labelled messages. Removing the label does **not**
    delete previously staged records; dismiss them manually.
@@ -135,3 +137,18 @@ in a test database. Test failed/unauthorized database operations too.
 rules**, because booking metadata is private. The published Vercel project's
 production repository is `gsheiner-del/argentina-trip-2027`, and this feature
 is built only on the `feature/map-gmail-review` branch until approved.
+
+## Latest integration (preserving the other agent’s budget work)
+
+The live project also has the per-destination **Costs** editor and its Budget
+USD/ARS/ILS display toggle. This branch integrates that latest main-branch code
+with the interactive map and review tabs. Bare numeric values remain legacy USD
+amounts. Explicit ARS/ILS inputs are converted using current USD-base rates;
+if rates cannot be fetched, those items are excluded and highlighted rather than
+silently treated as USD. Older planning estimates remain separate so they
+cannot accidentally be double-counted.
+
+If you already installed an **hourly** Apps Script trigger, open Triggers and
+edit or delete it, then add the **Day timer → 12 AM to 1 AM** trigger (Israel
+project time zone). The Gmail importer itself is unchanged, so you do not need
+to copy a second script just to change its schedule.
