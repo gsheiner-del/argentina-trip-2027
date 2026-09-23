@@ -167,7 +167,7 @@ function activityFields_(body) {
 /** Read text and HTML separately: HTML anchors carry Booking.com reservation URLs. */
 function bookingMetadata_(message) {
   const plain = message.getPlainBody() || '';
-  const html = message.getBody() || '';
+  const html = (typeof message.getBody === 'function' ? message.getBody() : '') || '';
   const stripped = html.replace(/<br\\s*\\/?\\s*>/gi, '\\n')
     .replace(/<\\/(?:p|div|tr|li)>/gi, '\\n')
     .replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
@@ -206,7 +206,7 @@ function extract_(message) {
   if (category === 'flight_extra') title = 'Airline seat / supplementary document';
   else if (category === 'flight') title = 'Flight or ticket — confirm details';
   if (cancellationFlag) title = 'Cancellation — review original email';
-  const extracted = category === 'hotel' ? { ...stayDates_(body + '\n' + message.getBody().replace(/<[^>]+>/g, '\n')), ...price_(body), ...bookingMetadata_(message) } :
+  const extracted = category === 'hotel' ? { ...stayDates_(body + '\n' + (typeof message.getBody === 'function' ? message.getBody() : '').replace(/<[^>]+>/g, '\n')), ...price_(body), ...bookingMetadata_(message) } :
     category === 'flight' || category === 'flight_extra'
       ? flightFields_(subject, body) : activityFields_(body);
   return {
