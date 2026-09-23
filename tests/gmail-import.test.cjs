@@ -19,10 +19,11 @@ vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, 
 });
 const { extract_, onlyTripMessage_ } = sandbox.testApi;
 
-function email(subject, body, id = 'testid') {
+function email(subject, body, id = 'testid', html = '') {
   return {
     getSubject: () => subject,
     getPlainBody: () => body,
+    getBody: () => html,
     getDate: () => new Date('2026-09-17T10:00:00Z'),
     getId: () => id
   };
@@ -83,4 +84,22 @@ test('Duplicate messages from same booking produce same group ID', () => {
   const one = extract_(email('EL AL flight', 'Flight from BUE March 2027. Booking code ABC123.'));
   const two = extract_(email('EL AL flight copy', 'Flight from BUE March 2027. Booking code ABC123.'));
   assert.equal(one.bookingGroup, two.bookingGroup);
+});
+
+
+test('EL AL HTML ticket receipt extracts both legs without leaking passenger identifiers', () => {
+  const html = '<table><tr><td>Tel Aviv Ben Gurion TLV</td><td>Buenos Aires EZE</td><td>LY 41</td><td>18:15 07MAR2027</td><td>05:40 08MAR2027</td></tr>' +
+    '<tr><td>Buenos Aires EZE</td><td>Tel Aviv TLV</td><td>LY 42</td><td>09:00 24MAR2027</td><td>05:15 25MAR2027</td></tr></table>';
+  const record = extract_(email('EL AL e-ticket confirmation',
+    'Buenos Aires EZE TLV March 2027. Frequent flyer 123456789. Ticket 0987654321.', 'ticket1', html));
+  assert.equal(record.category, 'flight');
+  assert.equal(record.segments.length, 2);
+  assert.equal(record.segments[0].number, 'LY41');
+  assert.equal(record.segments[0].date, '2027-03-07');
+  assert.equal(record.segments[0].departure, '18:15');
+  assert.equal(record.segments[1].number, 'LY42');
+  assert.equal(record.segments[1].date, '2027-03-24');
+  assert.equal(record.segments[1].arrivalDate, '2027-03-25');
+  assert.ok(!JSON.stringify(record).includes('123456789'));
+  assert.ok(!JSON.stringify(record).includes('0987654321'));
 });
