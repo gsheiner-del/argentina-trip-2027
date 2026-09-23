@@ -10,6 +10,58 @@ export function hotelStayKey(record) {
     ? record.checkIn : 'undated';
   return city + '_' + date;
 }
+
+/** Alternative hotel dates may vary by a day or two. Group overlapping
+ * stays in the same city so different check-in dates cannot both become
+ * active just because their start dates differ. Two non-overlapping visits
+ * to the same city remain separate groups.
+ */
+export function groupHotelOptions(records = []) {
+  const byCity = new Map();
+  for (const hotel of records) {
+    const cityKey = hotelCity(hotel.city) || 'unknown-city';
+    if (!byCity.has(cityKey)) byCity.set(cityKey, []);
+    byCity.get(cityKey).push(hotel);
+  }
+  const groups = [];
+  for (const [cityKey, cityHotels] of byCity) {
+    const dated = cityHotels.filter(hotel =>
+      /^\d{4}-\d{2}-\d{2}$/.test(hotel.checkIn || '') &&
+      /^\d{4}-\d{2}-\d{2}$/.test(hotel.checkOut || '') &&
+      hotel.checkIn < hotel.checkOut)
+      .sort((a, b) => a.checkIn.localeCompare(b.checkIn) ||
+        a.checkOut.localeCompare(b.checkOut));
+    const undated = cityHotels.filter(hotel => !dated.includes(hotel));
+    const cityGroups = [];
+    for (const hotel of dated) {
+      const prev = cityGroups.at(-1);
+      if (prev && hotel.checkIn < prev.to) {
+        prev.hotels.push(hotel);
+        if (hotel.checkOut > prev.to) prev.to = hotel.checkOut;
+      } else {
+        cityGroups.push({ city: hotel.city, from: hotel.checkIn,
+          to: hotel.checkOut, hotels: [hotel] });
+      }
+    }
+    if (cityGroups.length === 1) {
+      // When the destination is visited once, older options without stored
+      // dates are shown beside its dated alternatives, without inventing dates.
+      cityGroups[0].hotels.push(...undated);
+    } else if (undated.length) {
+      cityGroups.push({ city: undated[0].city, from: '', to: '',
+        hotels: undated });
+    }
+    for (const group of cityGroups) {
+      const key = cityKey + '_' + (group.from || 'undated');
+      const aliases = [...new Set([key, ...group.hotels.map(hotelStayKey)])];
+      groups.push({ ...group, key, aliases });
+    }
+  }
+  return groups.sort((a, b) =>
+    (a.from || '9999-12-31').localeCompare(b.from || '9999-12-31') ||
+    a.city.localeCompare(b.city));
+}
+
 export function hotelFingerprint(record) {
   return [hotelCity(record.city), hotelCity(record.name),
     record.checkIn || '', record.checkOut || ''].join('|');
