@@ -143,19 +143,46 @@ function price_(body) {
   const value = Number(matched[2]);
   return Number.isFinite(value) && value >= 0 ? { price: value, currency } : {};
 }
-function flightFields_(subject, body) {
-  const head = subject + '\n' + body.slice(0, 2800);
+function flightFields_(subject, body, html) {
+  const head = subject + '\n' + body.slice(0, 3500);
   const airline = /el al/i.test(head) ? 'EL AL' :
     /aerolineas argentinas|aerolíneas argentinas/i.test(head) ? 'Aerolíneas Argentinas' : '';
+  // EL AL ticket receipts put route, flight, departure and arrival in a table,
+  // rather than on individually labelled lines. Parse each HTML row as cells.
+  const rows = [...String(html || '').matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map(row => [...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+      .map(cell => cell[1].replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ')
+        .replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()))
+    .filter(cells => cells.length >= 4);
+  const airport = text => {
+    const t = clean_(text);
+    if (/\btlv\b|tel aviv|ben gurion/.test(t)) return 'TLV';
+    if (/\beze\b|ministro pistarini|ezeiza/.test(t)) return 'EZE';
+    if (/\baep\b|aeroparque/.test(t)) return 'AEP';
+    return (String(text || '').match(/\b(?:USH|FTE|BRC|MDZ|IGR|REL|PMY|COR|SCL)\b/i) || [])[0] || '';
+  };
+  const segments = rows.map(cells => {
+    const number = (cells.join(' ').match(/\b(?:LY|AR|FO|LA|JA|IB|KL|AF|LH|UX)\s?\d{2,4}\b/i) || [])[0];
+    if (!number) return null;
+    const dateTimes = cells.flatMap(cell => [...cell.matchAll(/(\d{1,2}:\d{2})\s*(\d{2}[A-Z]{3}20\d{2})/gi)]
+      .map(m => ({ time: m[1], date: parseDate_(m[2].replace(/(\d{2})([A-Z]{3})(20\d{2})/i, '$1 $2 $3')) })));
+    return { number: number.replace(/\s/g, '').toUpperCase(),
+      from: airport(cells[0]), to: airport(cells[1]),
+      date: dateTimes[0]?.date || '', departure: dateTimes[0]?.time || '',
+      arrivalDate: dateTimes[1]?.date || '', arrival: dateTimes[1]?.time || '' };
+  }).filter(x => x && x.from && x.to && x.date);
+  // Multiple segments in one receipt must be reviewed as a round trip; never
+  // silently turn the return flight into a duplicate outbound booking.
+  const first = segments[0];
+  if (first) return { airline, ...first, segments };
   const numberLine = labelledLine_(body, 'flight(?: number| no\\.?| #)?|vuelo(?: número)?');
   const flightMatch = (numberLine || subject).match(/\b(?:LY|AR|FO|LA|JA|IB|KL|AF|LH|UX)\s?\d{2,4}\b/i);
   const departureLine = labelledLine_(body, 'departure date|flight date|fecha de vuelo');
-  const date = parseDate_(departureLine);
   const origin = labelledLine_(body, 'from|origin airport|departure airport');
   const destination = labelledLine_(body, 'to|destination airport|arrival airport');
-  const airport = text => (String(text || '').match(/\b(?:TLV|EZE|AEP|USH|FTE|BRC|MDZ|IGR|REL|PMY|COR|SCL)\b/i) || [])[0] || '';
   return { airline, number: flightMatch ? flightMatch[0].replace(/\s+/g, '').toUpperCase() : '',
-    date, from: airport(origin), to: airport(destination) };
+    date: parseDate_(departureLine), from: airport(origin), to: airport(destination),
+    segments: [] };
 }
 function activityFields_(body) {
   const dateLine = labelledLine_(body, 'tour date|activity date|excursion date|fecha de excursión');
@@ -208,7 +235,7 @@ function extract_(message) {
   if (cancellationFlag) title = 'Cancellation — review original email';
   const extracted = category === 'hotel' ? { ...stayDates_(body + '\n' + (typeof message.getBody === 'function' ? message.getBody() : '').replace(/<[^>]+>/g, '\n')), ...price_(body), ...bookingMetadata_(message) } :
     category === 'flight' || category === 'flight_extra'
-      ? flightFields_(subject, body) : activityFields_(body);
+      ? flightFields_(subject, body, typeof message.getBody === 'function' ? message.getBody() : '') : activityFields_(body);
   return {
     subject: subject.slice(0, 180),
     title: title.slice(0, 140),
@@ -221,6 +248,8 @@ function extract_(message) {
     airline: extracted.airline || '',
     from: extracted.from || '',
     to: extracted.to || '',
+    departure: extracted.departure || '', arrival: extracted.arrival || '',
+    arrivalDate: extracted.arrivalDate || '', segments: extracted.segments || [],
     time: extracted.time || '',
     meetingPoint: extracted.meetingPoint || '',
     ...(Number.isFinite(extracted.price) ? { price: extracted.price, currency: extracted.currency } : {}),
@@ -241,7 +270,7 @@ function extract_(message) {
 }
 function missingFields_(existing, parsed) {
   const allowed = ['checkIn', 'checkOut', 'date', 'number', 'airline', 'from', 'to',
-    'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline'];
+    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline'];
   const updates = {};
   for (const key of allowed) {
     if ((existing[key] == null || existing[key] === '') &&
