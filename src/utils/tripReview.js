@@ -193,6 +193,66 @@ export function prepareApproval(trip, queue, emailId, options) {
   return { updates, path, result: existingPath ? 'updated' : 'created' };
 }
 
+/** Approve every leg of a multi-flight receipt as one atomic operation.
+ * Repeated passenger emails enrich the same shared flight records.
+ * No passenger identity, ticket or loyalty number is published to trip.
+ */
+export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) {
+  const item = queue?.[emailId];
+  if (!item || item.status !== 'pending' || item.cancellationFlag ||
+      trip?.emailImports?.[emailId]) throw new Error('Email is not available for approval.');
+  const legs = item.segments;
+  if (!Array.isArray(legs) || legs.length < 2)
+    throw new Error('This email does not contain multiple parsed flights.');
+  const idx = destinationIndex(trip?.destinations, destinationId);
+  if (idx < 0) throw new Error('Choose a destination.');
+  const dest = trip.destinations[idx];
+  const flights = Array.isArray(dest.flights) ? dest.flights : [];
+  const now = Date.now(), updates = {}, paths = [], reserved = new Set();
+  for (const leg of legs) {
+    const number = safe(leg.number, 30).toUpperCase();
+    const flightDate = date(leg.date);
+    const from = safe(leg.from, 90), to = safe(leg.to, 90);
+    if (!number || !flightDate || !from || !to || !/^\\d{2}:\\d{2}$/.test(leg.departure || ''))
+      throw new Error('Verify each leg’s flight number, airports, date and departure time.');
+    const matching = flights.map((row, i) => ({ row, i })).filter(({ row }) =>
+      norm(row.number) === norm(number) &&
+      (!row.date || row.date === flightDate) &&
+      (!row.from || norm(row.from) === norm(from)) &&
+      (!row.to || norm(row.to) === norm(to)));
+    if (matching.length > 1) throw new Error('Ambiguous existing flight: resolve duplicates manually.');
+    const path = 'trip/destinations/' + idx + '/flights/' +
+      (matching.length ? matching[0].i : flights.length + reserved.size);
+    if (paths.includes(path)) throw new Error('Two legs unexpectedly resolve to the same flight.');
+    const record = { status: 'confirmed', airline: safe(item.airline || 'Airline', 100),
+      number, date: flightDate, from, to,
+      departure: safe(leg.departure, 20), arrival: safe(leg.arrival, 20),
+      arrivalDate: leg.arrivalDate ? date(leg.arrivalDate) : '',
+      source: 'Gmail review' };
+    if (matching.length) {
+      const previous = matching[0].row;
+      updates[path + '/reviewedEmails/' + emailId] = true;
+      for (const [key, value] of Object.entries(record)) {
+        if (value && (previous[key] === undefined || previous[key] === null || previous[key] === ''))
+          updates[path + '/' + key] = value;
+      }
+    } else {
+      reserved.add(path);
+      updates[path] = { ...record, id: 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 45) +
+        '_' + paths.length, reviewedEmails: { [emailId]: true }, reviewedAt: now };
+    }
+    paths.push(path);
+  }
+  updates['gmailImport/reviewQueue/' + emailId + '/status'] = 'approved';
+  updates['gmailImport/reviewQueue/' + emailId + '/reviewedAt'] = now;
+  updates['gmailImport/reviewQueue/' + emailId + '/destinationId'] = String(destinationId);
+  updates['trip/emailImports/' + emailId] = {
+    category: 'flight', destinationId: String(destinationId), targetPath: paths[0],
+    targetPaths: paths, importedAt: now
+  };
+  return { updates, path: paths.join(', '), result: 'linked ' + paths.length + ' flights' };
+}
+
 export function screenshotImportPlan(trip, destinationId, rows, confirmedOnly = true) {
   const idx = destinationIndex(trip?.destinations, destinationId);
   if (idx < 0) throw new Error('Choose a destination.');
