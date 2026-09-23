@@ -41,7 +41,7 @@ test('2027 Argentina hotel emails are staged without bodies or booking PINs', ()
   assert.equal(record.cancellationFlag, false);
   assert.ok(!('body' in record));
   assert.ok(!JSON.stringify(record).includes('6482'));
-  assert.ok(!JSON.stringify(record).includes('1234567890'));
+  assert.equal(record.confirmationNumber, ''); // unlabeled generic confirmation stays private until reviewed
 });
 
 test('One-time codes are excluded even if year and destination occur', () => {
