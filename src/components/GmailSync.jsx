@@ -36,7 +36,8 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
   useEffect(() => {
     setDraft(prev => Object.fromEntries(Object.entries(initDraft(item)).map(([key, val]) =>
       [key, prev[key] || val])));
-  }, [item.checkIn, item.checkOut, item.date, item.from, item.to, item.number]);
+  }, [item.checkIn, item.checkOut, item.date, item.from, item.to, item.number,
+    item.address, item.phone, item.propertyEmail, item.confirmationNumber, item.bookingLink, item.cancellationDeadline]);
 
   const setField = (field, value) => setDraft(prev => ({ ...prev, [field]: value }));
   const matches = useMemo(() =>
@@ -73,6 +74,10 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
       {item.cancellationFlag &&
         <p className="gmail-warning">Cancellation detected. Do not approve as a confirmed booking.
           Verify the original message and update the reservation manually.</p>}
+      {item.status === 'pending' && <button type="button" disabled={saving}
+        onClick={() => onAction(itemId, item, 'outside').catch(e => setError(e.message))}>
+        Archive · outside itinerary
+      </button>}
       <div className="gmail-review-fields">
         <label>Send to
           <select value={category} onChange={e => {
@@ -204,11 +209,15 @@ export default function GmailSync({ currentEmail, trip }) {
 
   const items = Object.entries(queue).filter(([, item]) => item && typeof item === 'object')
     .sort((a, b) => (b[1].receivedAt || '').localeCompare(a[1].receivedAt || ''));
-  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending');
+  const inRoute = item => !item.place ||
+    (trip?.destinations || []).some(d => cityMatches(item.place, d.name));
+  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending' && inRoute(item));
+  const outside = items.filter(([, item]) => item.status === 'outside_itinerary' ||
+    ((item.status || 'pending') === 'pending' && !inRoute(item)));
   const unlinked = items.filter(([id, item]) =>
     item.status === 'approved' && !trip?.emailImports?.[id]);
   const displayed = filter === 'pending' ? pending : filter === 'approved' ? unlinked
-    : items.filter(([, item]) => item.status === 'rejected');
+    : filter === 'outside' ? outside : items.filter(([, item]) => item.status === 'rejected');
 
   const act = async (id, item, action, opts = {}) => {
     if (busyId) throw new Error('Wait for the current review to finish.');
@@ -221,6 +230,14 @@ export default function GmailSync({ currentEmail, trip }) {
         updates['gmailImport/reviewQueue/' + id + '/reviewedBy'] = currentEmail;
         await update(ref(database), updates);
         setNotice('Approved: ' + result + ' ' + path + '. See the Destination tab.');
+      } else if (action === 'outside') {
+        if (trip?.emailImports?.[id]) throw new Error('Already linked: remove from the trip separately.');
+        await update(ref(database), {
+          ['gmailImport/reviewQueue/' + id + '/status']: 'outside_itinerary',
+          ['gmailImport/reviewQueue/' + id + '/reviewedAt']: Date.now(),
+          ['gmailImport/reviewQueue/' + id + '/reviewedBy']: currentEmail
+        });
+        setNotice('Archived outside current itinerary. Nothing was deleted.');
       } else {
         if (item.status !== 'pending') throw new Error('This email is already reviewed.');
         await update(ref(database), {
@@ -252,7 +269,8 @@ export default function GmailSync({ currentEmail, trip }) {
         {[
           ['pending', 'Pending (' + pending.length + ')'],
           ['approved', 'Older approved emails to link (' + unlinked.length + ')'],
-          ['rejected', 'Dismissed']
+          ['rejected', 'Dismissed'],
+          ['outside', 'Outside itinerary (' + outside.length + ')']
         ].map(([key, label]) =>
           <button key={key} className={key === filter ? 'active' : ''}
             onClick={() => setFilter(key)}>{label}</button>)}
@@ -263,10 +281,10 @@ export default function GmailSync({ currentEmail, trip }) {
       {!loading && !error && !displayed.length &&
         <p className="gmail-empty">No {filter === 'approved' ? 'older approvals to link' : filter} emails.</p>}
       <div className="gmail-review-grid">
-        {!error && displayed.map(([id, item]) => filter === 'rejected'
+        {!error && displayed.map(([id, item]) => filter === 'rejected' || filter === 'outside'
           ? <article key={id} className="gmail-review-card">
               <h4>{item.subject || 'Travel email'}</h4>
-              <p>Dismissed. No changes were made to the trip.</p>
+              <p>{filter === 'outside' ? 'Outside current itinerary; hidden from regular review.' : 'Dismissed. No changes were made to the trip.'}</p>
               {item.gmailUrl && <a href={item.gmailUrl} target="_blank" rel="noreferrer">
                 View in Gmail</a>}
             </article>
