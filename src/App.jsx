@@ -96,6 +96,7 @@ export default function App() {
       setDataError('');
     } catch {
       setDataError('Could not save destination costs. Check Firebase permissions.');
+      throw new Error('Could not save destination costs.');
     }
   };
 
@@ -160,18 +161,34 @@ export default function App() {
 
   const editHotel = async (hotel, form) => {
     editorOnly();
-    const clean = await pricedHotel(sanitizeHotel({ ...form,
-      source: hotel.source || 'Manual entry' }, hotel.originalId || hotel.id));
-    if (hotel.sourcePath?.startsWith('trip/destinations/')) {
-      // Keep existing destination details and any booking link/description intact.
-      const changes = { ...clean };
-      delete changes.id;
-      await update(ref(database, hotel.sourcePath), changes);
-    } else if (hotel.sourcePath?.startsWith('trip/hotelBookings/')) {
-      await update(ref(database, hotel.sourcePath), clean);
-    } else {
+    const clean = sanitizeHotel({ ...form,
+      source: hotel.source || 'Manual entry' }, hotel.originalId || hotel.id);
+
+    const priceUnchanged = clean.price === (hotel.price === '' || hotel.price == null
+      ? null : Number(hotel.price)) && clean.currency === (hotel.currency || 'USD');
+    const updatedHotel = priceUnchanged && Number.isFinite(hotel.priceUsd) &&
+        hotel.fxSnapshot
+      ? { ...clean, priceUsd: hotel.priceUsd, fxSnapshot: hotel.fxSnapshot }
+      : await pricedHotel(clean);
+
+    const writePath = hotel.sourcePath;
+    if (!/^trip\/(?:destinations\/\d+\/hotels\/\d+|hotelBookings\/[A-Za-z0-9_-]+)$/.test(writePath || '')) {
       throw new Error('Booking record path is not recognized.');
     }
+
+    const patch = { ...updatedHotel };
+    if (writePath.startsWith('trip/destinations/')) delete patch.id;
+    const changes = Object.fromEntries(Object.entries(patch).map(([field, value]) =>
+      [writePath + '/' + field, value]));
+
+    // A cancelled or re-dated booking must not remain implicitly active.
+    const oldGroup = hotelStayKey(hotel);
+    const newGroup = hotelStayKey(updatedHotel);
+    if (tripData.hotelSelections?.[oldGroup] === hotel.id &&
+        (updatedHotel.status !== 'confirmed' || oldGroup !== newGroup)) {
+      changes['trip/hotelSelections/' + oldGroup] = null;
+    }
+    await update(ref(database), changes);
   };
 
   const selectHotel = async (stayKey, hotel) => {
@@ -190,7 +207,7 @@ export default function App() {
     if (hotel) {
       const valid = allRecords.some((candidate) => candidate.id === hotel.id &&
         hotelStayKey(candidate) === stayKey &&
-        String(candidate.status || '').toLowerCase().includes('confirm'));
+        /confirm|booked/i.test(String(candidate.status || '')));
       if (!valid) throw new Error('Select a confirmed booking from this stay group.');
     }
     await update(ref(database), { ['trip/hotelSelections/' + stayKey]: hotel?.id || null });
