@@ -409,7 +409,6 @@ function sendCancellationReminders() {
   const trip = firebase_('get', 'trip') || {};
   const sent = firebase_('get', 'gmailImport/cancellationRemindersSent') || {};
   const now = new Date();
-  const updates = {};
   const records = [];
   const routeCities = new Set((trip.destinations || []).map(d => clean_(d.name || '')));
   for (const dest of trip.destinations || []) {
@@ -432,14 +431,10 @@ function sendCancellationReminders() {
     const key = id + '_' + stay.cancellationDeadline.replace(/[^0-9]/g, '') + '_' + days;
     if (sent[key] || seen.has(key)) continue;
     seen.add(key);
-    // Mark before sending to avoid repeated mail if the job is retried.
-    firebase_('patch', 'gmailImport/cancellationRemindersSent', { [key]: new Date().toISOString() });
     MailApp.sendEmail('gsheiner@gmail.com',
       'Argentina 2027: cancellation deadline in ' + days + ' day(s) — ' + stay.name,
       'Stay: ' + stay.name + '\nDeadline (property local time): ' +
       stay.cancellationDeadline + '\nReview your original confirmation in Gmail before cancelling.');
-    updates[key] = new Date().toISOString();
+    firebase_('patch', 'gmailImport/cancellationRemindersSent', { [key]: new Date().toISOString() });
   }
-  if (Object.keys(updates).length)
-    firebase_('patch', 'gmailImport/cancellationRemindersSent', updates);
 }
