@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { COST_CATEGORIES, aggregateCosts, convertPlanningEstimate } from '../utils/budget';
+import { COST_CATEGORIES, aggregateCosts, convertPlanningEstimate, selectedHotelCosts, bookedDomesticFlights } from '../utils/budget';
 import { fetchUsdQuote, currentDisplay, formatMoney, FX_ATTRIBUTION_URL } from '../utils/fx';
 import './Budget.css';
 
@@ -9,7 +9,6 @@ const CURRENCIES = [
   { code: 'ILS', label: '🇮🇱 ILS' }
 ];
 const LEGACY_ITEMS = [
-  ['internationalFlights', '✈️ International Flights'],
   ['domesticFlights', '✈️ Domestic Flights'],
   ['hotels', '🏨 Hotels'],
   ['transport', '🚗 Ground Transport'],
@@ -17,21 +16,6 @@ const LEGACY_ITEMS = [
   ['meals', '🍽️ Meals & Dining'],
   ['other', '📱 Other']
 ];
-function hotelTotalUsd(tripData) {
-  const records = tripData?.hotelBookings || {};
-  const selection = tripData?.hotelSelections || {};
-  const activeIds = new Set(Object.values(selection).filter(Boolean));
-  let total = 0, count = 0;
-  for (const record of Object.values(records)) {
-    if (record && activeIds.has(record.id) && record.status !== 'cancelled' &&
-        Number.isFinite(record.priceUsd) && record.priceUsd >= 0) {
-      count++;
-      total += record.priceUsd;
-    }
-  }
-  return { total, count };
-}
-
 export default function Budget({ tripData }) {
   const budget = tripData?.budget || {};
   const destinations = tripData?.destinations || [];
@@ -62,7 +46,8 @@ export default function Budget({ tripData }) {
   }, []);
 
   const report = useMemo(() => aggregateCosts(destinations, quote), [destinations, quote]);
-  const hotelReport = useMemo(() => hotelTotalUsd(tripData), [tripData]);
+  const hotelReport = useMemo(() => selectedHotelCosts(tripData, quote), [tripData, quote]);
+  const flightReport = useMemo(() => bookedDomesticFlights(tripData, quote), [tripData, quote]);
   const converted = (amountUsd) => {
     const result = currentDisplay(amountUsd, currency, quote);
     return result === null ? 'Exchange rate unavailable' : formatMoney(result, currency);
@@ -102,6 +87,8 @@ export default function Budget({ tripData }) {
           without a snapshot are provisional and use the latest published rate.
         </p>
         <div className="budget-table">
+          <div className="budget-row"><span>🏨 Preferred confirmed hotels ({hotelReport.count})</span><span>{converted(hotelReport.total)}</span></div>
+          <div className="budget-row"><span>✈️ Booked domestic flights ({flightReport.count})</span><span>{converted(flightReport.total)}</span></div>
           {COST_CATEGORIES.map(cat => (
             <div key={cat.key} className="budget-row">
               <span>{cat.label}</span>
@@ -111,8 +98,10 @@ export default function Budget({ tripData }) {
         </div>
         <div className="budget-summary">
           <span>📊 Tracked total · {report.included} priced items</span>
-          <span className="total">{converted(report.grandTotal)}</span>
+          <span className="total">{converted(report.grandTotal + hotelReport.total + flightReport.total)}</span>
         </div>
+        {(hotelReport.unpriced + flightReport.unpriced) > 0 && <p className="budget-note">
+          {hotelReport.unpriced + flightReport.unpriced} confirmed selected hotel / domestic flight item(s) have no convertible price yet.</p>}
         {report.provisionalCount > 0 &&
           <p className="budget-note">{report.provisionalCount} legacy foreign-currency item(s)
             do not have a saved exchange-rate snapshot. Edit and save them to lock in a rate.</p>}
@@ -148,18 +137,8 @@ export default function Budget({ tripData }) {
       </section>
 
       <section className="budget-section">
-        <h3>Active hotel reservations (reference only)</h3>
-        <p className="budget-note">Only selected, non-cancelled reservations that have a saved
-          USD equivalent are shown. Not added to the tracked total to avoid double counting.</p>
-        <div className="budget-row">
-          <span>{hotelReport.count} selected imported hotel booking(s)</span>
-          <span>{converted(hotelReport.total)}</span>
-        </div>
-      </section>
-
-      <section className="budget-section">
         <h3>Michelle &amp; Gilad share</h3>
-        <p className="budget-note">Original planning estimate. Detailed cost-sharing
+        <p className="budget-note">Original planning estimate. Actual share is pending an explicit allocation per booking. Detailed cost-sharing
           rules for new tracked expenses have not been defined.</p>
         <div className="budget-row">
           <span>Personal-cost estimate</span>
