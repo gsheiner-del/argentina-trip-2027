@@ -1,0 +1,14 @@
+.nearby-explore { display:grid; gap:13px; }
+.nearby-explore h3 { color:#354f83; }
+.nearby-explore h4 { margin-top:14px; color:#354f83; }
+.nearby-explore p { font-size:13px; color:#5b6d82; line-height:1.5; }
+.nearby-explore .nearby-anchor { background:#eff5fc; border-radius:8px; padding:10px; color:#325b83; }
+.nearby-filters { display:flex; flex-wrap:wrap; gap:8px; }
+.nearby-filters button { background:#eef3f9; border:1px solid #dce4ef; border-radius:30px; padding:8px 12px; font-size:12px; cursor:pointer; }
+.nearby-filters button.active { background:#325f94; color:white; }
+.nearby-explore-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(195px,1fr)); gap:12px; }
+.nearby-explore-grid a { display:grid; gap:6px; padding:16px; text-decoration:none; border:1px solid #dce5ee; border-radius:12px; color:#30465f; background:#fff; }
+.nearby-explore-grid a:hover { border-color:#417eac; background:#f6faff; }
+.nearby-explore-grid span { font-size:26px; }
+.nearby-explore-grid strong { font-size:13px; }
+.nearby-explore-grid small { color:#64748b; font-size:12px; line-height:1.4; }
