@@ -37,7 +37,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     setDraft(prev => Object.fromEntries(Object.entries(initDraft(item)).map(([key, val]) =>
       [key, prev[key] || val])));
   }, [item.checkIn, item.checkOut, item.date, item.from, item.to, item.number,
-    item.address, item.phone, item.propertyEmail, item.confirmationNumber, item.bookingLink, item.cancellationDeadline]);
+    item.address, item.phone, item.propertyEmail, item.confirmationNumber, item.bookingLink, item.cancellationDeadline, item.departure, item.arrival, item.arrivalDate, item.segments]);
 
   const setField = (field, value) => setDraft(prev => ({ ...prev, [field]: value }));
   const matches = useMemo(() =>
@@ -67,7 +67,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
         <span className="gmail-review-category">{item.category || 'other'} email</span>
         {item.status === 'approved'
           ? <span className="gmail-muted">Older approval — link to a destination</span>
-          : <span className="gmail-muted">Pending confirmation</span>}
+          : <span className="gmail-muted">Awaiting your review — airline status is separate</span>}
       </header>
       <h4>{item.subject || 'Travel email'}</h4>
       <p className="gmail-muted">Received: {item.receivedAt
