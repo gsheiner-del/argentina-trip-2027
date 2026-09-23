@@ -28,5 +28,6 @@ test('Duplicate hotel alternatives are detected by city, name and exact stay dat
 test('Invalid or unsafe screenshot booking fields are rejected', () => {
   assert.throws(() => sanitizeHotel({ ...confirmed, bookingLink: 'javascript:alert(1)' }), /HTTPS/);
   assert.throws(() => sanitizeHotel({ ...confirmed, checkOut: '2027-03-08' }), /after check-in/);
+  assert.throws(() => sanitizeHotel({ ...confirmed, checkIn: '2027-02-30' }), /valid YYYY/);
   assert.throws(() => sanitizeHotel({ ...confirmed, price: -1 }), /non-negative/);
 });
