@@ -14,7 +14,7 @@ export default function DestinationDetail({ destinations, selectedId, userRole, 
       setExpandedId(selectedId);
       setActiveTab('stays');
     }
-  }, [selectedId, destinations]);
+  }, [selectedId]);
 
   const current = destinations?.find(d => d.id === expandedId);
 
