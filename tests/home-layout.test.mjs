@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-test('Home shows map first, trip overview below, without duplicate Route or Map tabs', () => {
+test('Home shows map first and navigation keeps bookings inside Destinations', () => {
   const home = app.indexOf("{currentTab === 'home' && (");
   const map = app.indexOf('<ArgentinaMap', home);
   const overview = app.indexOf('<section className="trip-summary">', home);
@@ -13,5 +13,8 @@ test('Home shows map first, trip overview below, without duplicate Route or Map 
   assert.equal(app.includes("['map', 'Interactive map']"), false);
   assert.equal(app.includes('<RouteMap'), false);
   assert.equal(app.slice(home, end).includes('quick-route'), false);
-  assert.ok(app.includes("['hotels', 'Hotels & bookings']"));
+  assert.equal(app.includes("['hotels', 'Hotels & bookings']"), false);
+  assert.equal(app.includes("['bookings', 'Reviewed bookings']"), false);
+  assert.ok(app.includes("['destinations', 'Destinations']"));
+  assert.ok(app.includes("['gmail', 'Gmail review']"));
 });
