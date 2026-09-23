@@ -48,7 +48,8 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     [trip, category, destinationId]);
   const selected = matchList.find(m => m.sourcePath === existingPath);
   const conflicts = matches.find(m => m.sourcePath === existingPath)?.conflicts || [];
-  const canApprove = !item.cancellationFlag && draft.title.trim() && destinationId &&
+  const canApprove = !(category === 'flight' && (item.segments || []).length > 1 && !existingPath) &&
+    !item.cancellationFlag && draft.title.trim() && destinationId &&
     (existingPath || matches.length === 0);
 
   const approve = async () => {
@@ -116,6 +117,17 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             <option>USD</option><option>ARS</option><option>ILS</option>
           </select></label>
         </>}
+        {category === 'flight' && (item.segments || []).length > 0 && <div className="gmail-match-panel">
+          <strong>Flights found in this ticket receipt</strong>
+          {(item.segments || []).map((leg, index) => <p key={index}>
+            {leg.number}: {leg.from} → {leg.to} · {leg.date} {leg.departure}
+            {leg.arrivalDate ? ' → ' + leg.arrivalDate : ''} {leg.arrival}
+          </p>)}
+          {(item.segments || []).length > 1 && <p className="gmail-warning">
+            Round-trip ticket: choose an existing flight for this email. Review and
+            confirm the return leg separately to avoid duplicate passenger records.
+          </p>}
+        </div>}
         {category === 'flight' && <>
           <label>Flight number<input value={draft.number}
             onChange={e => setField('number', e.target.value)}/></label>
