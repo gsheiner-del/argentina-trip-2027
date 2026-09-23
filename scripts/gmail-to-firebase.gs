@@ -63,23 +63,135 @@ function bookingGroup_(subject, body) {
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/, '');
 }
 
+// Date extraction deliberately uses only labelled booking/flight fields. A generic
+// date in an email may be the booking date or free-cancellation deadline.
+const MONTHS = {
+  january: 1, jan: 1, enero: 1, february: 2, feb: 2, febrero: 2,
+  march: 3, mar: 3, marzo: 3, april: 4, apr: 4, abril: 4,
+  may: 5, mayo: 5, june: 6, jun: 6, junio: 6,
+  july: 7, jul: 7, julio: 7, august: 8, aug: 8, agosto: 8,
+  september: 9, sept: 9, sep: 9, septiembre: 9, setiembre: 9,
+  october: 10, oct: 10, octubre: 10, november: 11, nov: 11, noviembre: 11,
+  december: 12, dec: 12, diciembre: 12
+};
+function dateIso_(year, month, day) {
+  const y = Number(year), m = Number(month), d = Number(day);
+  if (y < 2026 || y > 2032 || m < 1 || m > 12 || d < 1 || d > 31) return '';
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() + 1 !== m ||
+      date.getUTCDate() !== d) return '';
+  return String(y) + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+function parseDate_(input) {
+  const text = clean_(input).replace(/[,()]/g, ' ').replace(/\s+/g, ' ');
+  let match = text.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+  if (match) return dateIso_(match[1], match[2], match[3]);
+  const months = Object.keys(MONTHS).join('|');
+  match = text.match(new RegExp('\\b(' + months + ')\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+(20\\d{2})\\b'));
+  if (match) return dateIso_(match[3], MONTHS[match[1]], match[2]);
+  match = text.match(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:de\\s+)?(' +
+    months + ')\\s+(?:de\\s+)?(20\\d{2})\\b'));
+  if (match) return dateIso_(match[3], MONTHS[match[2]], match[1]);
+  // Numeric dates are accepted ONLY when not ambiguous; "03/04/2027" requires
+  // human review rather than silently swapping day and month.
+  match = text.match(/\b(\d{1,2})[\/.](\d{1,2})[\/.](20\d{2})\b/);
+  if (match) {
+    const a = Number(match[1]), b = Number(match[2]);
+    if (a > 12 && b <= 12) return dateIso_(match[3], b, a);
+    if (b > 12 && a <= 12) return dateIso_(match[3], a, b);
+  }
+  return '';
+}
+function labelledLine_(body, labels) {
+  const lines = body.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const re = new RegExp('^(?:' + labels + ')(?:\\s+date)?\\s*:?\\s*(.*)$', 'i');
+  for (let i = 0; i < lines.length; i++) {
+    const found = lines[i].match(re);
+    if (!found) continue;
+    return (found[1] || '').trim() || lines[i + 1] || '';
+  }
+  return '';
+}
+function stayDates_(body) {
+  let checkIn = parseDate_(labelledLine_(body,
+    'check[ -]?in|arrival|entrada|fecha de entrada'));
+  let checkOut = parseDate_(labelledLine_(body,
+    'check[ -]?out|departure|salida|fecha de salida'));
+  // Explicit "Stay ... to ..." wording, not unrelated cancellation deadlines.
+  if (!checkIn || !checkOut) {
+    const line = body.split(/\r?\n/).find(v => /^\s*(?:stay|dates of stay|estancia)\s*[: ]/i.test(v));
+    if (line) {
+      const parts = line.replace(/^\s*[^:]*?:\s*/, '').replace(/^\s*(?:stay|estancia)\s+/i, '')
+        .split(/\s+(?:to|through|until|hasta)\s+|\s+[–—]\s+/i);
+      if (parts.length === 2) {
+        if (!checkIn) checkIn = parseDate_(parts[0]);
+        if (!checkOut) checkOut = parseDate_(parts[1]);
+      }
+    }
+  }
+  if (checkIn && checkOut && checkOut <= checkIn) checkOut = '';
+  return { checkIn, checkOut };
+}
+function price_(body) {
+  const line = labelledLine_(body, 'total price|total amount|precio total|booking total');
+  const text = String(line || '').replace(/,/g, '');
+  const matched = text.match(/(US\$|USD|AR\$|ARS|ILS|₪)\s*(\d+(?:\.\d{1,2})?)/i);
+  if (!matched) return {};
+  const raw = matched[1].toUpperCase();
+  const currency = raw === 'US$' || raw === 'USD' ? 'USD' :
+    raw === 'AR$' || raw === 'ARS' ? 'ARS' : 'ILS';
+  const value = Number(matched[2]);
+  return Number.isFinite(value) && value >= 0 ? { price: value, currency } : {};
+}
+function flightFields_(subject, body) {
+  const head = subject + '\n' + body.slice(0, 2800);
+  const airline = /el al/i.test(head) ? 'EL AL' :
+    /aerolineas argentinas|aerolíneas argentinas/i.test(head) ? 'Aerolíneas Argentinas' : '';
+  const numberLine = labelledLine_(body, 'flight(?: number| no\\.?| #)?|vuelo(?: número)?');
+  const flightMatch = (numberLine || subject).match(/\b(?:LY|AR|FO|LA|JA|IB|KL|AF|LH|UX)\s?\d{2,4}\b/i);
+  const departureLine = labelledLine_(body, 'departure date|flight date|fecha de vuelo');
+  const date = parseDate_(departureLine);
+  const origin = labelledLine_(body, 'from|origin airport|departure airport');
+  const destination = labelledLine_(body, 'to|destination airport|arrival airport');
+  const airport = text => (String(text || '').match(/\b(?:TLV|EZE|AEP|USH|FTE|BRC|MDZ|IGR|REL|PMY|COR|SCL)\b/i) || [])[0] || '';
+  return { airline, number: flightMatch ? flightMatch[0].replace(/\s+/g, '').toUpperCase() : '',
+    date, from: airport(origin), to: airport(destination) };
+}
+function activityFields_(body) {
+  const dateLine = labelledLine_(body, 'tour date|activity date|excursion date|fecha de excursión');
+  return { date: parseDate_(dateLine),
+    time: labelledLine_(body, 'meeting time|start time|hora de encuentro').slice(0, 55),
+    meetingPoint: labelledLine_(body, 'meeting point|punto de encuentro').slice(0, 130) };
+}
 function extract_(message) {
   const subject = message.getSubject() || '';
   const body = message.getPlainBody() || '';
   if (!onlyTripMessage_(subject, body)) return null;
-  const cancellationFlag = /booking cancelle?d|booking canceled|reservation (?:has been )?cancelled|reserva cancelada/i.test(subject + ' ' + body.slice(0, 500));
+  const cancellationFlag = /booking cancelle?d|booking canceled|reservation (?:has been )?cancelled|reserva cancelada/i.test(
+    subject + ' ' + body.slice(0, 500));
   const category = category_(subject, body);
   let title = subject.replace(/^\s*(?:🛄\s*)?(?:Thanks!?\s*Your booking is confirmed at|You have a message from)\s*/i, '').trim();
   if (category === 'flight_extra') title = 'Airline seat / supplementary document';
   else if (category === 'flight') title = 'Flight or ticket — confirm details';
   if (cancellationFlag) title = 'Cancellation — review original email';
+  const extracted = category === 'hotel' ? { ...stayDates_(body), ...price_(body) } :
+    category === 'flight' || category === 'flight_extra'
+      ? flightFields_(subject, body) : activityFields_(body);
   return {
     subject: subject.slice(0, 180),
     title: title.slice(0, 140),
     category,
     place: city_(subject, body),
-    checkIn: '',
-    checkOut: '',
+    checkIn: extracted.checkIn || '',
+    checkOut: extracted.checkOut || '',
+    date: extracted.date || '',
+    number: extracted.number || '',
+    airline: extracted.airline || '',
+    from: extracted.from || '',
+    to: extracted.to || '',
+    time: extracted.time || '',
+    meetingPoint: extracted.meetingPoint || '',
+    ...(Number.isFinite(extracted.price) ? { price: extracted.price, currency: extracted.currency } : {}),
     notes: '',
     cancellationFlag,
     bookingGroup: bookingGroup_(subject, body),
@@ -87,6 +199,18 @@ function extract_(message) {
     gmailUrl: 'https://mail.google.com/mail/u/0/#all/' + message.getId(),
     status: 'pending'
   };
+}
+function missingFields_(existing, parsed) {
+  const allowed = ['checkIn', 'checkOut', 'date', 'number', 'airline', 'from', 'to',
+    'time', 'meetingPoint', 'price', 'currency', 'place'];
+  const updates = {};
+  for (const key of allowed) {
+    if ((existing[key] == null || existing[key] === '') &&
+        parsed[key] !== undefined && parsed[key] !== null && parsed[key] !== '') {
+      updates[key] = parsed[key];
+    }
+  }
+  return updates;
 }
 
 function base64Url_(data) {
@@ -147,7 +271,7 @@ function checkAccount_() {
     throw new Error('Run this script from the authorized Gmail account only: ' + TRIP_CONFIG.expectedAccount);
 }
 
-/** First run manually, then add a time-driven hourly trigger. */
+/* Run once manually; then set a DAILY 12 AM–1 AM Asia/Jerusalem trigger. */
 function syncGmailToFirebase() {
   checkAccount_();
   const label = GmailApp.getUserLabelByName(TRIP_CONFIG.label);
@@ -177,4 +301,49 @@ function syncGmailToFirebase() {
     label: TRIP_CONFIG.label
   });
   Logger.log('Staged ' + matched + ' new emails for manual review.');
+}
+
+
+/**
+ * Run this function ONCE after replacing the old script. It enriches the
+ * already-staged emails with missing dates/flight information and never
+ * overwrites manually edited fields, statuses, notes or review decisions.
+ * It does NOT re-stage dismissed emails and does NOT publish to the trip.
+ */
+function backfillGmailMetadata() {
+  checkAccount_();
+  const label = GmailApp.getUserLabelByName(TRIP_CONFIG.label);
+  if (!label) throw new Error('Gmail label not found.');
+  const existing = firebase_('get', TRIP_CONFIG.queuePath) || {};
+  const changes = {};
+  let examined = 0, enriched = 0;
+  const pageSize = 100;
+  for (let offset = 0; offset < 1000; offset += pageSize) {
+    const threads = label.getThreads(offset, pageSize);
+    if (!threads.length) break;
+    for (const thread of threads) {
+      for (const message of thread.getMessages()) {
+        const id = 'm_' + message.getId();
+        if (!existing[id]) continue;
+        examined++;
+        const parsed = extract_(message);
+        if (!parsed) continue;
+        const missing = missingFields_(existing[id], parsed);
+        for (const [key, value] of Object.entries(missing)) {
+          changes[id + '/' + key] = value;
+          existing[id][key] = value;
+        }
+        if (Object.keys(missing).length) enriched++;
+      }
+    }
+    if (threads.length < pageSize) break;
+  }
+  if (Object.keys(changes).length) firebase_('patch', TRIP_CONFIG.queuePath, changes);
+  firebase_('patch', 'gmailImport/meta', {
+    lastBackfillAt: new Date().toISOString(),
+    backfillExamined: examined,
+    backfillEnriched: enriched
+  });
+  Logger.log('Backfill complete: examined ' + examined + '; enriched ' + enriched +
+    ' existing emails. All review statuses and manually entered fields were preserved.');
 }
