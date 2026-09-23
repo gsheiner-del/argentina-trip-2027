@@ -9,7 +9,7 @@ import ApprovedBookings from './components/ApprovedBookings';
 import LoginPage from './components/LoginPage';
 import HotelBookings from './components/HotelBookings';
 import { push } from 'firebase/database';
-import { sanitizeHotel, hotelStayKey } from './utils/hotels';
+import { sanitizeHotel, groupHotelOptions } from './utils/hotels';
 import { fetchUsdQuote, snapshotExpense } from './utils/fx';
 
 const USER_WHITELIST = {
@@ -120,6 +120,19 @@ export default function App() {
   const editorOnly = () => {
     if (userRole !== 'edit') throw new Error('Only trip editors can change bookings.');
   };
+  const allKnownHotels = () => [
+    ...destinations.flatMap((dest, index) =>
+      (dest.hotels || []).map((item, hotelIndex) => ({
+        ...item,
+        id: 'legacy_' + dest.id + '_' + String(item.id ?? hotelIndex),
+        originalId: String(item.id ?? hotelIndex),
+        city: item.city || dest.name,
+        checkIn: item.checkIn || '',
+        sourcePath: 'trip/destinations/' + index + '/hotels/' + hotelIndex
+      }))),
+    ...Object.entries(tripData.hotelBookings || {}).map(([id, item]) => ({ ...item, id }))
+  ];
+
 
   const pricedHotel = async (hotel) => {
     // The quote is fetched at the moment the booking price is SAVED.
@@ -181,36 +194,49 @@ export default function App() {
     const changes = Object.fromEntries(Object.entries(patch).map(([field, value]) =>
       [writePath + '/' + field, value]));
 
-    // A cancelled or re-dated booking must not remain implicitly active.
-    const oldGroup = hotelStayKey(hotel);
-    const newGroup = hotelStayKey(updatedHotel);
-    if (tripData.hotelSelections?.[oldGroup] === hotel.id &&
-        (updatedHotel.status !== 'confirmed' || oldGroup !== newGroup)) {
-      changes['trip/hotelSelections/' + oldGroup] = null;
+    // Remove a stale active selection when the selected hotel is cancelled
+    // or moved into another overlap-based stay group.
+    const before = allKnownHotels();
+    const after = before.map(item =>
+      item.id === hotel.id ? { ...item, ...updatedHotel, id: item.id } : item);
+    const oldGroup = groupHotelOptions(before).find(g => g.hotels.some(item => item.id === hotel.id));
+    const newGroup = groupHotelOptions(after).find(g => g.hotels.some(item => item.id === hotel.id));
+    const wasExplicitlySelected = oldGroup?.aliases.some(alias =>
+      tripData.hotelSelections?.[alias] === hotel.id);
+    if (wasExplicitlySelected &&
+        (updatedHotel.status !== 'confirmed' || oldGroup?.key !== newGroup?.key)) {
+      for (const alias of oldGroup.aliases) {
+        changes['trip/hotelSelections/' + alias] = null;
+      }
+      changes['trip/hotelSelections/' + oldGroup.key] = 'none';
+    }
+    if (writePath.startsWith('trip/destinations/') &&
+        (updatedHotel.status !== 'confirmed' || oldGroup?.key !== newGroup?.key)) {
+      const parts = writePath.split('/');
+      const destinationIndex = Number(parts[2]);
+      if (tripData.destinations[destinationIndex]?.selectedHotel === hotel.originalId) {
+        changes['trip/destinations/' + destinationIndex + '/selectedHotel'] = null;
+      }
     }
     await update(ref(database), changes);
   };
 
   const selectHotel = async (stayKey, hotel) => {
     editorOnly();
-    const allRecords = [
-      ...destinations.flatMap((dest, index) =>
-        (dest.hotels || []).map((item, hotelIndex) => ({
-          ...item,
-          id: 'legacy_' + dest.id + '_' + String(item.id ?? hotelIndex),
-          city: item.city || dest.name,
-          checkIn: item.checkIn || '',
-          sourcePath: 'trip/destinations/' + index + '/hotels/' + hotelIndex
-        }))),
-      ...Object.entries(tripData.hotelBookings || {}).map(([id, item]) => ({ ...item, id }))
-    ];
-    if (hotel) {
-      const valid = allRecords.some((candidate) => candidate.id === hotel.id &&
-        hotelStayKey(candidate) === stayKey &&
-        /confirm|booked/i.test(String(candidate.status || '')));
-      if (!valid) throw new Error('Select a confirmed booking from this stay group.');
+    const group = groupHotelOptions(allKnownHotels()).find(g => g.key === stayKey);
+    if (!group) throw new Error('This hotel stay changed. Reload the booking list.');
+    if (hotel && !group.hotels.some(item => item.id === hotel.id &&
+        /confirm|booked/i.test(String(item.status || '')))) {
+      throw new Error('Select a confirmed hotel within this stay.');
     }
-    await update(ref(database), { ['trip/hotelSelections/' + stayKey]: hotel?.id || 'none' });
+    // Atomically clear stale aliases so overlapping alternatives with
+    // different check-in dates can never both be active.
+    const changes = {};
+    for (const alias of group.aliases) {
+      changes['trip/hotelSelections/' + alias] = null;
+    }
+    changes['trip/hotelSelections/' + group.key] = hotel?.id || 'none';
+    await update(ref(database), changes);
   };
 
   if (loading) return <div className="loading">Loading...</div>;
