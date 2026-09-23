@@ -106,6 +106,23 @@ export function prepareApproval(trip, queue, emailId, options) {
       record.price = n; record.currency = input.currency;
       if (record.currency === 'USD') record.priceUsd = n;
     }
+    const address = safe(input.address, 250), phone = safe(input.phone, 40);
+    const propertyEmail = safe(input.propertyEmail, 150);
+    const confirmationNumber = safe(input.confirmationNumber, 60);
+    const bookingLink = safe(input.bookingLink, 1000);
+    const cancellationDeadline = safe(input.cancellationDeadline, 32);
+    if (propertyEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(propertyEmail))
+      throw new Error('Invalid property email.');
+    if (bookingLink) {
+      let url;
+      try { url = new URL(bookingLink); } catch { throw new Error('Invalid Booking.com URL.'); }
+      if (url.protocol !== 'https:' || !/(^|\\.)booking\\.com$/i.test(url.hostname))
+        throw new Error('Use an HTTPS Booking.com reservation URL.');
+    }
+    if (cancellationDeadline && !/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(cancellationDeadline))
+      throw new Error('Confirm the cancellation deadline in local property time.');
+    Object.assign(record, { address, phone, propertyEmail, confirmationNumber,
+      bookingLink, cancellationDeadline });
     field = 'hotels';
   } else if (category === 'flight') {
     const flightDate = date(input.date || input.checkIn);
