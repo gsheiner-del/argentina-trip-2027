@@ -258,7 +258,10 @@ export default function HotelBookings({
       </div>}
       {message && <p className="hotel-message" role="status">{message}</p>}
       {groups.map(([key, list]) => {
-        const selected = hotelSelections[key] || list.find(x => x.legacySelected)?.id || null;
+        const storedChoice = Object.prototype.hasOwnProperty.call(hotelSelections, key)
+          ? hotelSelections[key] : undefined;
+        const selected = storedChoice === 'none'
+          ? null : storedChoice || list.find(x => x.legacySelected)?.id || null;
         return <section className="hotel-stay" key={key}>
           <div className="hotel-stay-heading">
             <h3>📍 {list[0].city} · {list[0].checkIn || 'Dates to be confirmed'}</h3>
