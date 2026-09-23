@@ -316,6 +316,8 @@ function syncGmailToFirebase() {
   const label = GmailApp.getUserLabelByName(TRIP_CONFIG.label);
   if (!label) throw new Error('Gmail label not found: ' + TRIP_CONFIG.label);
   const existing = firebase_('get', TRIP_CONFIG.queuePath) || {};
+  const trip = firebase_('get', 'trip') || {};
+  const routeCities = (trip.destinations || []).map(d => clean_(d.name || ''));
   const incoming = {};
   let matched = 0;
   const pageSize = 100;
@@ -328,7 +330,12 @@ function syncGmailToFirebase() {
         const id = 'm_' + message.getId();
         if (existing[id] || incoming[id]) continue; // Never reset past approvals.
         const parsed = extract_(message);
-        if (parsed) { incoming[id] = parsed; matched++; }
+        if (parsed) {
+          // Known locations removed from the itinerary are archived, not shown in review.
+          if (parsed.place && routeCities.length && !routeCities.includes(clean_(parsed.place)))
+            parsed.status = 'outside_itinerary';
+          incoming[id] = parsed; matched++;
+        }
       }
     }
     if (threads.length < pageSize) break;
@@ -404,12 +411,15 @@ function sendCancellationReminders() {
   const now = new Date();
   const updates = {};
   const records = [];
+  const routeCities = new Set((trip.destinations || []).map(d => clean_(d.name || '')));
   for (const dest of trip.destinations || []) {
     for (const stay of dest.hotels || []) if (stay) records.push(stay);
   }
-  for (const stay of Object.values(trip.hotelBookings || {})) if (stay) records.push(stay);
+  for (const stay of Object.values(trip.hotelBookings || {}))
+    if (stay && routeCities.has(clean_(stay.city || ''))) records.push(stay);
   const seen = new Set();
   for (const stay of records) {
+    if (stay.outsideItinerary || stay.archived) continue;
     if (!/confirm|booked/i.test(stay.status || '') || /cancel/i.test(stay.status || '')) continue;
     if (!/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(stay.cancellationDeadline || '')) continue;
     // Without a verified property time zone, the deadline cannot be safely
