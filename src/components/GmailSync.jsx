@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { database, ref, onValue, update } from '../firebase';
-import { existingRecords, likelyMatches, prepareApproval } from '../utils/tripReview.js';
+import { existingRecords, likelyMatches, prepareApproval, prepareMultiFlightApproval } from '../utils/tripReview.js';
 import { cityMatches } from '../utils/tripReview.js';
 import '../styles/GmailSync.css';
 
@@ -48,7 +48,8 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     [trip, category, destinationId]);
   const selected = matchList.find(m => m.sourcePath === existingPath);
   const conflicts = matches.find(m => m.sourcePath === existingPath)?.conflicts || [];
-  const canApprove = !(category === 'flight' && (item.segments || []).length > 1 && !existingPath) &&
+  const multiFlight = category === 'flight' && (item.segments || []).length > 1;
+  const canApprove = multiFlight ? !item.cancellationFlag && Boolean(destinationId) :
     !item.cancellationFlag && draft.title.trim() && destinationId &&
     (existingPath || matches.length === 0);
 
@@ -57,7 +58,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     try {
       await onAction(itemId, item, 'approve', {
         category, destinationId, existingPath,
-        replaceConflicts, draft
+        replaceConflicts, draft, multiFlight
       });
     } catch (e) { setError(e.message || 'Could not approve this record.'); }
   };
@@ -124,8 +125,8 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             {leg.arrivalDate ? ' → ' + leg.arrivalDate : ''} {leg.arrival}
           </p>)}
           {(item.segments || []).length > 1 && <p className="gmail-warning">
-            Round-trip ticket: choose an existing flight for this email. Review and
-            confirm the return leg separately to avoid duplicate passenger records.
+            Both legs will be approved together. Existing flights with matching number, date
+            and route will be enriched, not duplicated. Verify both legs before approving.
           </p>}
         </div>}
         {category === 'flight' && <>
@@ -160,7 +161,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             onChange={e => setField('notes', e.target.value)}/>
         </label>
       </div>
-      {destinationId && <div className="gmail-match-panel">
+      {destinationId && !multiFlight && <div className="gmail-match-panel">
         <strong>Link this email to a destination record</strong>
         {matches.length > 0 &&
           <p className="gmail-warning">{matches.length} potential duplicate(s) found.
@@ -238,7 +239,9 @@ export default function GmailSync({ currentEmail, trip }) {
       if (action === 'approve') {
         // Perform an atomic multipath update, linking an approved email directly
         // to a destination; avoid a second, contradictory Reviewed bookings store.
-        const { updates, path, result } = prepareApproval(trip, queue, id, opts);
+        const { updates, path, result } = opts.multiFlight
+          ? prepareMultiFlightApproval(trip, queue, id, opts.destinationId)
+          : prepareApproval(trip, queue, id, opts);
         updates['gmailImport/reviewQueue/' + id + '/reviewedBy'] = currentEmail;
         await update(ref(database), updates);
         setNotice('Approved: ' + result + ' ' + path + '. See the Destination tab.');
