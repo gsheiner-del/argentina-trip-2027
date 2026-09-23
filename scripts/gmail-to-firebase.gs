@@ -201,24 +201,39 @@ function bookingMetadata_(message) {
     .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
   const body = plain + '\n' + stripped;
   const field = labels => labelledLine_(body, labels).slice(0, 250);
-  const confirmation = body.match(/(?:confirmation number|booking number|reservation number|numero de confirmacion|numero de reserva)\s*[:#]?\s*([0-9]{6,14})/i);
+  const confirmation = body.match(/(?:confirmation(?: number)?|booking number|reservation number|numero de confirmacion|numero de reserva)\s*[:#]?\s*([0-9]{6,14})/i);
+  // Booking.com may use either a direct reservation URL or a tracking redirect.
+  // Only direct booking.com URLs are offered as booking-management links.
   const anchor = [...html.matchAll(/href\s*=\s*["'](https:\/\/[^"'<> ]+)["']/gi)]
     .map(x => x[1].replace(/&amp;/g, '&')).find(url => {
-      try { const u = new URL(url); return /(^|\.)booking\.com$/i.test(u.hostname) &&
-        /(?:booking|reservation|manage|confirmation)/i.test(u.pathname + u.search); }
-      catch { return false; }
+      const host = (url.match(/^https:\/\/([^/:?#]+)/i) || [])[1] || '';
+      return /(^|\.)booking\.com$/i.test(host) &&
+        /(?:booking|reservation|manage|confirmation)/i.test(url);
     });
   const email = field('(?:property |hotel )?e-?mail|contact email');
   const phone = field('(?:property |hotel )?(?:phone|telephone|tel\\.?|telefono)');
-  const deadline = field('free cancellation until|cancel for free until|cancellation deadline|cancelacion gratuita hasta');
-  const dateMatch = deadline.match(/20\d{2}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
+  // Booking.com cancellation policies often appear as a sentence rather than
+  // a labelled ISO timestamp. Never infer a deadline from the check-in date.
+  const cancellationText = body.match(/(?:free cancellation|cancel for free|no cancellation fee)[^\n]{0,110}?(?:until|through|before)\s+([^\n.]{5,85})/i);
+  const deadlineLine = field('free cancellation until|cancel for free until|cancellation deadline|cancelacion gratuita hasta');
+  const deadlineSource = deadlineLine || (cancellationText ? cancellationText[1] : '');
+  const iso = deadlineSource.match(/20\d{2}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
+  const dateValue = parseDate_(deadlineSource);
+  const timeMatch = deadlineSource.match(/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)/i);
+  let cancellationDeadline = iso ? iso[0].replace(' ', 'T') : '';
+  if (!cancellationDeadline && dateValue && timeMatch) {
+    let hour = Number(timeMatch[1]) % 12;
+    if (/p/i.test(timeMatch[3])) hour += 12;
+    cancellationDeadline = dateValue + 'T' + String(hour).padStart(2, '0') +
+      ':' + (timeMatch[2] || '00');
+  }
   return {
-    address: field('(?:property )?address|direccion'),
+    address: field('(?:property )?address|location|direccion'),
     phone: (phone.match(/\+?[0-9][0-9 ()-]{7,22}/) || [])[0] || '',
     propertyEmail: (email.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0] || '',
     confirmationNumber: confirmation ? confirmation[1] : '',
     bookingLink: anchor || '',
-    cancellationDeadline: dateMatch ? dateMatch[0].replace(' ', 'T') : ''
+    cancellationDeadline
   };
 }
 
