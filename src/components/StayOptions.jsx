@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { existingRecords, cityMatches } from '../utils/tripReview.js';
 import { groupHotelOptions } from '../utils/hotels.js';
-import { formatMoney } from '../utils/fx.js';
 import './HotelBookings.css';
 import './StayOptions.css';
 
@@ -9,7 +8,10 @@ const confirmed = s => /confirm|booked/i.test(String(s || '')) &&
   !/cancel/i.test(String(s || ''));
 const statusLabel = s => /cancel/i.test(String(s || '')) ? 'Cancelled'
   : confirmed(s) ? 'Confirmed' : 'Option / not confirmed';
-const secureLink = v => typeof v === 'string' && /^https:\/\//i.test(v);
+const secureLink = v => { try { const u = new URL(v); return u.protocol === 'https:'; } catch { return false; } };
+const mapsLink = address => 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address);
+const wazeLink = address => 'https://waze.com/ul?q=' + encodeURIComponent(address) + '&navigate=yes';
+const whatsappLink = phone => { const digits = String(phone || '').replace(/\D/g, ''); return digits.length >= 8 ? 'https://wa.me/' + digits : ''; };
 
 export default function StayOptions({ trip, destination, userRole, onSelect, onImport }) {
   const editor = userRole === 'edit';
@@ -114,9 +116,13 @@ export default function StayOptions({ trip, destination, userRole, onSelect, onI
                   </div>
                   <h4>{hotel.name}</h4>
                   <p>{hotel.checkIn || 'Check-in TBD'} → {hotel.checkOut || 'Check-out TBD'}</p>
-                  {hotel.price != null && hotel.price !== '' &&
-                    <strong>{formatMoney(Number(hotel.price),
-                      hotel.currency || 'USD')}</strong>}
+                  {hotel.confirmationNumber && <p>Confirmation: {secureLink(hotel.bookingLink) ?
+                    <a href={hotel.bookingLink} target="_blank" rel="noopener noreferrer">{hotel.confirmationNumber} ↗</a> :
+                    <span>{hotel.confirmationNumber}</span>}</p>}
+                  {hotel.address && <p>📍 {hotel.address} · <a href={mapsLink(hotel.address)} target="_blank" rel="noopener noreferrer">Google Maps</a> · <a href={wazeLink(hotel.address)} target="_blank" rel="noopener noreferrer">Waze</a></p>}
+                  {hotel.phone && <p>Phone: {hotel.phone} {whatsappLink(hotel.phone) && <a href={whatsappLink(hotel.phone)} target="_blank" rel="noopener noreferrer">WhatsApp ↗</a>}</p>}
+                  {hotel.propertyEmail && <p>Email: <a href={'mailto:' + hotel.propertyEmail}>{hotel.propertyEmail}</a></p>}
+                  {hotel.cancellationDeadline && <p>Free cancellation until: {hotel.cancellationDeadline} (property local time)</p>}
                   {hotel.rooms && <p>{hotel.rooms} room(s)</p>}
                   {hotel.cancellationPolicy && <p>{hotel.cancellationPolicy}</p>}
                   {hotel.description && <p>{hotel.description}</p>}
