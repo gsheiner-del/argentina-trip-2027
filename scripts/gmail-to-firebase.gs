@@ -332,7 +332,7 @@ function syncGmailToFirebase() {
         const parsed = extract_(message);
         if (parsed) {
           // Known locations removed from the itinerary are archived, not shown in review.
-          if (parsed.place && routeCities.length && !routeCities.includes(clean_(parsed.place)))
+          if (parsed.category === 'hotel' && parsed.place && routeCities.length && !routeCities.includes(clean_(parsed.place)))
             parsed.status = 'outside_itinerary';
           incoming[id] = parsed; matched++;
         }
