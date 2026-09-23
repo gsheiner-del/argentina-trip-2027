@@ -20,7 +20,8 @@ const ALLOWED_STATUS = new Set(['confirmed', 'cancelled', 'pending', 'option']);
 function dateIsValid(value) {
   if (!value) return true;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  return !Number.isNaN(Date.parse(value + 'T00:00:00Z'));
+  const parsed = new Date(value + 'T00:00:00Z');
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 /** Accept only publicly useful information from screenshot transcription.
