@@ -15,6 +15,9 @@ const initDraft = item => ({
   departure: item.departure || '', arrival: item.arrival || '',
   time: item.time || '', organizer: item.organizer || '',
   meetingPoint: item.meetingPoint || '',
+  address: item.address || '', phone: item.phone || '', propertyEmail: item.propertyEmail || '',
+  confirmationNumber: item.confirmationNumber || '', bookingLink: item.bookingLink || '',
+  cancellationDeadline: item.cancellationDeadline || '',
   price: item.price == null ? '' : String(item.price),
   currency: item.currency || 'USD', notes: item.notes || ''
 });
@@ -95,6 +98,12 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             onChange={e => setField('checkIn', e.target.value)}/></label>
           <label>Check-out<input type="date" value={draft.checkOut}
             onChange={e => setField('checkOut', e.target.value)}/></label>
+          <label>Property address<input value={draft.address} onChange={e => setField('address', e.target.value)}/></label>
+          <label>Property phone<input value={draft.phone} onChange={e => setField('phone', e.target.value)}/></label>
+          <label>Property email<input type="email" value={draft.propertyEmail} onChange={e => setField('propertyEmail', e.target.value)}/></label>
+          <label>Confirmation number<input value={draft.confirmationNumber} onChange={e => setField('confirmationNumber', e.target.value)}/></label>
+          <label>Booking.com link<input type="url" value={draft.bookingLink} onChange={e => setField('bookingLink', e.target.value)}/></label>
+          <label>Free cancellation deadline (property local time)<input type="datetime-local" value={draft.cancellationDeadline} onChange={e => setField('cancellationDeadline', e.target.value)}/></label>
           <label>Optional total price<input type="number" min="0" step=".01"
             value={draft.price} onChange={e => setField('price', e.target.value)}/></label>
           <label>Price currency<select value={draft.currency}
