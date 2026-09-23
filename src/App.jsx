@@ -5,12 +5,9 @@ import ArgentinaMap from './components/ArgentinaMap';
 import GmailSync from './components/GmailSync';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
-import ApprovedBookings from './components/ApprovedBookings';
 import LoginPage from './components/LoginPage';
-import HotelBookings from './components/HotelBookings';
-import { push } from 'firebase/database';
-import { sanitizeHotel, groupHotelOptions } from './utils/hotels';
-import { fetchUsdQuote, snapshotExpense } from './utils/fx';
+import { groupHotelOptions } from './utils/hotels';
+import { existingRecords, screenshotImportPlan, cityMatches } from './utils/tripReview.js';
 
 const USER_WHITELIST = {
   'gsheiner@gmail.com': { role: 'edit', display: 'Gennady' },
@@ -24,7 +21,6 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('home');
   const [tripData, setTripData] = useState(null);
   const [selectedDestination, setSelectedDestination] = useState(null);
-  const [hotelFilterId, setHotelFilterId] = useState(null);
   const [userRole, setUserRole] = useState('view');
   const [userEmail, setUserEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -115,128 +111,82 @@ export default function App() {
   };
 
 
-  // All hotel writes are restricted by both the editor UI and the deployed
-  // Firebase database rules. Do not write guest-specific codes or email bodies.
   const editorOnly = () => {
-    if (userRole !== 'edit') throw new Error('Only trip editors can change bookings.');
+    if (userRole !== 'edit') throw new Error('Only Gennady and Marina can change stays.');
   };
-  const allKnownHotels = () => [
-    ...destinations.flatMap((dest, index) =>
-      (dest.hotels || []).map((item, hotelIndex) => ({
-        ...item,
-        id: 'legacy_' + dest.id + '_' + String(item.id ?? hotelIndex),
-        originalId: String(item.id ?? hotelIndex),
-        city: item.city || dest.name,
-        checkIn: item.checkIn || '',
-        sourcePath: 'trip/destinations/' + index + '/hotels/' + hotelIndex
-      }))),
-    ...Object.entries(tripData.hotelBookings || {}).map(([id, item]) => ({ ...item, id }))
-  ];
 
-
-  const pricedHotel = async (hotel) => {
-    // The quote is fetched at the moment the booking price is SAVED.
-    // This historical USD basis is never changed by subsequent display conversions.
-    if (hotel.price === null) {
-      return { ...hotel, priceUsd: null, fxSnapshot: null };
+  const selectPreferred = async (groupKey, hotel) => {
+    editorOnly();
+    const groups = tripData.destinations.flatMap(dest =>
+      groupHotelOptions(existingRecords(tripData, 'hotel', dest.id)));
+    const group = groups.find(g => g.key === groupKey &&
+      (!hotel || g.hotels.some(row => row.sourcePath === hotel.sourcePath)));
+    if (!group) throw new Error('This stay changed. Refresh your browser.');
+    if (hotel && !/confirm|booked/i.test(String(hotel.status || '')) ||
+        hotel && /cancel/i.test(String(hotel.status || ''))) {
+      throw new Error('Only a confirmed, non-cancelled booking can be Preferred.');
     }
-    const quote = hotel.currency === 'USD' ? null : await fetchUsdQuote();
-    const converted = snapshotExpense(hotel.price, hotel.currency, quote);
-    return { ...hotel, priceUsd: converted.usdValue, fxSnapshot: converted.fxSnapshot };
-  };
-
-  const addHotel = async (form) => {
-    editorOnly();
-    const newRef = push(ref(database, 'trip/hotelBookings'));
-    const clean = await pricedHotel(sanitizeHotel(form, newRef.key));
-    await set(newRef, clean);
-  };
-
-  const importHotels = async (rows) => {
-    editorOnly();
-    if (!Array.isArray(rows) || rows.length > 100) throw new Error('Import at most 100 hotels.');
-    // Collect changes first so network/validation failures do not partially import the list.
-    const accepted = rows.map((row) => sanitizeHotel(row, push(ref(database, 'trip/hotelBookings')).key));
-    const needsQuote = accepted.some((hotel) => hotel.price !== null && hotel.currency !== 'USD');
-    const quote = needsQuote ? await fetchUsdQuote() : null;
     const updates = {};
-    for (const hotel of accepted) {
-      const result = hotel.price === null
-        ? { ...hotel, priceUsd: null, fxSnapshot: null }
-        : (() => {
-            const snap = snapshotExpense(hotel.price, hotel.currency, quote);
-            return { ...hotel, priceUsd: snap.usdValue, fxSnapshot: snap.fxSnapshot };
-          })();
-      updates['trip/hotelBookings/' + hotel.id] = result;
+    for (const alias of group.aliases) updates['trip/hotelSelections/' + alias] = null;
+    updates['trip/hotelSelections/' + group.key] = hotel?.id || 'none';
+    await update(ref(database), updates);
+  };
+
+  const importScreenshot = async (rows) => {
+    editorOnly();
+    if (!Array.isArray(rows) || rows.length > 100)
+      throw new Error('Import an array of up to 100 bookings.');
+    const updates = {};
+    let added = 0, enriched = 0, duplicates = 0, unmatched = 0;
+    const normalized = value => String(value || '').normalize('NFD')
+      .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const pendingByDest = {};
+    for (const row of rows) {
+      if (!/confirm|booked/i.test(String(row.status || '')) ||
+          /cancel/i.test(String(row.status || ''))) continue;
+      const match = tripData.destinations.find(dest => cityMatches(row.city, dest.name));
+      if (!match) { unmatched++; continue; }
+      // Validate dates and duplicate fingerprints before preparing any database writes.
+      const plan = screenshotImportPlan(tripData, match.id, [row]);
+      const index = plan.destinationIndex;
+      const existing = existingRecords(tripData, 'hotel', match.id).find(h =>
+        normalized(h.name) === normalized(row.name) &&
+        (!h.checkIn || h.checkIn === row.checkIn) &&
+        (!h.checkOut || h.checkOut === row.checkOut));
+      if (existing) {
+        const additions = {
+          checkIn: row.checkIn, checkOut: row.checkOut,
+          ...(Number.isFinite(Number(row.price)) && row.price !== '' && row.price != null
+            ? { price: Number(row.price), currency: row.currency || 'USD' } : {}),
+          ...(row.cancellationPolicy ? { cancellationPolicy: String(row.cancellationPolicy).slice(0,200) } : {})
+        };
+        let changed = false;
+        for (const [field,value] of Object.entries(additions)) {
+          if (value !== '' && (existing[field] === '' || existing[field] == null)) {
+            updates[existing.sourcePath + '/' + field] = value; changed = true;
+          }
+        }
+        if (changed) enriched++; else duplicates++;
+        continue;
+      }
+      if (!plan.accept.length) { duplicates++; continue; }
+      const next = (tripData.destinations[index].hotels?.length || 0) +
+        (pendingByDest[index] || 0);
+      pendingByDest[index] = (pendingByDest[index] || 0) + 1;
+      updates['trip/destinations/' + index + '/hotels/' + next] = {
+        id: 'screenshot_' + index + '_' + next,
+        name: String(row.name).slice(0,160), city: match.name,
+        checkIn: row.checkIn, checkOut: row.checkOut,
+        status: 'confirmed', source: 'Booking screenshot',
+        ...(row.price != null && row.price !== '' && Number.isFinite(Number(row.price))
+          ? { price: Number(row.price), currency: row.currency || 'USD' } : {}),
+        ...(row.cancellationPolicy
+          ? { cancellationPolicy: String(row.cancellationPolicy).slice(0,200) } : {})
+      };
+      added++;
     }
     if (Object.keys(updates).length) await update(ref(database), updates);
-  };
-
-  const editHotel = async (hotel, form) => {
-    editorOnly();
-    const clean = sanitizeHotel({ ...form,
-      source: hotel.source || 'Manual entry' }, hotel.originalId || hotel.id);
-
-    const priceUnchanged = clean.price === (hotel.price === '' || hotel.price == null
-      ? null : Number(hotel.price)) && clean.currency === (hotel.currency || 'USD');
-    const updatedHotel = priceUnchanged && Number.isFinite(hotel.priceUsd) &&
-        hotel.fxSnapshot
-      ? { ...clean, priceUsd: hotel.priceUsd, fxSnapshot: hotel.fxSnapshot }
-      : await pricedHotel(clean);
-
-    const writePath = hotel.sourcePath;
-    if (!/^trip\/(?:destinations\/\d+\/hotels\/\d+|hotelBookings\/[A-Za-z0-9_-]+)$/.test(writePath || '')) {
-      throw new Error('Booking record path is not recognized.');
-    }
-
-    const patch = { ...updatedHotel };
-    if (writePath.startsWith('trip/destinations/')) delete patch.id;
-    const changes = Object.fromEntries(Object.entries(patch).map(([field, value]) =>
-      [writePath + '/' + field, value]));
-
-    // Remove a stale active selection when the selected hotel is cancelled
-    // or moved into another overlap-based stay group.
-    const before = allKnownHotels();
-    const after = before.map(item =>
-      item.id === hotel.id ? { ...item, ...updatedHotel, id: item.id } : item);
-    const oldGroup = groupHotelOptions(before).find(g => g.hotels.some(item => item.id === hotel.id));
-    const newGroup = groupHotelOptions(after).find(g => g.hotels.some(item => item.id === hotel.id));
-    const wasExplicitlySelected = oldGroup?.aliases.some(alias =>
-      tripData.hotelSelections?.[alias] === hotel.id);
-    if (wasExplicitlySelected &&
-        (updatedHotel.status !== 'confirmed' || oldGroup?.key !== newGroup?.key)) {
-      for (const alias of oldGroup.aliases) {
-        changes['trip/hotelSelections/' + alias] = null;
-      }
-      changes['trip/hotelSelections/' + oldGroup.key] = 'none';
-    }
-    if (writePath.startsWith('trip/destinations/') &&
-        (updatedHotel.status !== 'confirmed' || oldGroup?.key !== newGroup?.key)) {
-      const parts = writePath.split('/');
-      const destinationIndex = Number(parts[2]);
-      if (tripData.destinations[destinationIndex]?.selectedHotel === hotel.originalId) {
-        changes['trip/destinations/' + destinationIndex + '/selectedHotel'] = null;
-      }
-    }
-    await update(ref(database), changes);
-  };
-
-  const selectHotel = async (stayKey, hotel) => {
-    editorOnly();
-    const group = groupHotelOptions(allKnownHotels()).find(g => g.key === stayKey);
-    if (!group) throw new Error('This hotel stay changed. Reload the booking list.');
-    if (hotel && !group.hotels.some(item => item.id === hotel.id &&
-        /confirm|booked/i.test(String(item.status || '')))) {
-      throw new Error('Select a confirmed hotel within this stay.');
-    }
-    // Atomically clear stale aliases so overlapping alternatives with
-    // different check-in dates can never both be active.
-    const changes = {};
-    for (const alias of group.aliases) {
-      changes['trip/hotelSelections/' + alias] = null;
-    }
-    changes['trip/hotelSelections/' + group.key] = hotel?.id || 'none';
-    await update(ref(database), changes);
+    return { added, enriched, duplicates, unmatched };
   };
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -275,15 +225,11 @@ export default function App() {
       </header>
       <nav className="nav-tabs" aria-label="Trip sections">
         {[
-          ['home', 'Home'], ['destinations', 'Destinations'],
-          ['hotels', 'Hotels & bookings'], ['budget', 'Budget'], ['bookings', 'Reviewed bookings'],
+          ['home', 'Home'], ['destinations', 'Destinations'], ['budget', 'Budget'],
           ...(userRole === 'edit' ? [['gmail', 'Gmail review']] : [])
         ].map(([id, label]) => (
           <button key={id} className={currentTab === id ? 'active' : ''}
-            onClick={() => {
-              if (id === 'hotels') setHotelFilterId(null);
-              setCurrentTab(id);
-            }}>{label}</button>
+            onClick={() => setCurrentTab(id)}>{label}</button>
         ))}
       </nav>
       <main className="content">
@@ -300,40 +246,24 @@ export default function App() {
               <div className="summary-item"><span>Route stops</span><span>{destinations.length}</span></div>
               <div className="summary-item"><span>Active hotel selections</span>
                 <span>{Object.values(tripData.hotelSelections || {}).filter(id => id && id !== 'none').length}</span></div>
-              <div className="summary-item"><span>Reviewed bookings</span>
-                <span>{Object.keys(tripData.bookingSummaries || {}).length}</span></div>
+              <div className="summary-item"><span>Gmail-linked records</span>
+                <span>{Object.keys(tripData.emailImports || {}).length}</span></div>
               <div className="summary-item"><span>Status</span><span>Planning in progress</span></div>
             </section>
           </div>
         )}
         {currentTab === 'destinations' && (
-          <DestinationDetail
+          <DestinationDetail trip={tripData}
             destinations={destinations} selectedId={selectedDestination}
-            onSelectHotel={(id, hotelId) => updateDestination(id, { selectedHotel: hotelId })}
             onUpdateBooking={handleUpdateBooking}
             onUpdateCosts={handleUpdateCosts} userRole={userRole}
-            onOpenHotelBookings={(id) => {
-              setSelectedDestination(id);
-              setHotelFilterId(id);
-              setCurrentTab('hotels');
-            }}
-          />
-        )}
-        {currentTab === 'hotels' && (
-          <HotelBookings
-            destinations={destinations}
-            destinationId={hotelFilterId}
-            hotelBookings={tripData.hotelBookings || {}}
-            hotelSelections={tripData.hotelSelections || {}}
-            userRole={userRole}
-            onImport={importHotels} onAdd={addHotel} onEdit={editHotel}
-            onSelect={selectHotel}
+            onSelectPreferred={selectPreferred}
+            onImportScreenshot={importScreenshot}
           />
         )}
         {currentTab === 'budget' && <Budget tripData={tripData} />}
-        {currentTab === 'bookings' && <ApprovedBookings bookingSummaries={tripData.bookingSummaries} />}
         {currentTab === 'gmail' && userRole === 'edit' &&
-          <GmailSync currentEmail={userEmail} />}
+          <GmailSync currentEmail={userEmail} trip={tripData} />}
       </main>
       <footer className="footer">Argentina Trip Planner • Live trip data</footer>
     </div>
