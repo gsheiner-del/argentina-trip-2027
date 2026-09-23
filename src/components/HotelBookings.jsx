@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchUsdQuote, currentDisplay, FX_ATTRIBUTION_URL, formatMoney } from '../utils/fx';
-import { hotelCity, hotelStayKey, importHotelRows } from '../utils/hotels';
+import { hotelCity, groupHotelOptions, importHotelRows } from '../utils/hotels';
 import './HotelBookings.css';
 
 const STATUS_LABEL = { confirmed: 'Confirmed', cancelled: 'Cancelled', pending: 'Pending', option: 'Option' };
@@ -146,13 +146,7 @@ export default function HotelBookings({
     [destinations, hotelBookings]);
   const destination = destinations.find(d => d.id === destinationId);
   const shown = destination ? all.filter(x => hotelCity(x.city) === hotelCity(destination.name)) : all;
-  const byStay = new Map();
-  for (const hotel of shown) {
-    const key = hotelStayKey(hotel);
-    if (!byStay.has(key)) byStay.set(key, []);
-    byStay.get(key).push(hotel);
-  }
-  const groups = [...byStay].sort(([a], [b]) => a.localeCompare(b));
+  const groups = groupHotelOptions(shown);
   const existing = useMemo(() => all, [all]);
 
   const importFile = async (event) => {
@@ -257,14 +251,18 @@ export default function HotelBookings({
         </div>
       </div>}
       {message && <p className="hotel-message" role="status">{message}</p>}
-      {groups.map(([key, list]) => {
-        const storedChoice = Object.prototype.hasOwnProperty.call(hotelSelections, key)
-          ? hotelSelections[key] : undefined;
-        const selected = storedChoice === 'none'
-          ? null : storedChoice || list.find(x => x.legacySelected)?.id || null;
+      {groups.map(({ key, city, from, to, hotels: list, aliases }) => {
+        const selectedAlias = aliases.find(alias =>
+          Object.prototype.hasOwnProperty.call(hotelSelections, alias));
+        const storedChoice = selectedAlias ? hotelSelections[selectedAlias] : undefined;
+        const candidate = storedChoice === 'none' ? null
+          : storedChoice || list.find(x => x.legacySelected)?.id || null;
+        const selected = list.some(x => x.id === candidate && x.status === 'confirmed')
+          ? candidate : null;
         return <section className="hotel-stay" key={key}>
           <div className="hotel-stay-heading">
-            <h3>📍 {list[0].city} · {list[0].checkIn || 'Dates to be confirmed'}</h3>
+            <h3>📍 {city} · {from || 'Dates to be confirmed'}
+              {to && ' → ' + to}</h3>
             <span>{selected ? 'Active selection saved' : 'No active hotel selected'}</span>
             {editor && selected &&
               <button type="button" disabled={busy} onClick={async () => {
