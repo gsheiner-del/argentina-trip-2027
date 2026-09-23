@@ -116,13 +116,16 @@ export function prepareApproval(trip, queue, emailId, options) {
     if (bookingLink) {
       let url;
       try { url = new URL(bookingLink); } catch { throw new Error('Invalid Booking.com URL.'); }
-      if (url.protocol !== 'https:' || !/(^|\\.)booking\\.com$/i.test(url.hostname))
+      if (url.protocol !== 'https:' || !/(^|\.)booking\.com$/i.test(url.hostname))
         throw new Error('Use an HTTPS Booking.com reservation URL.');
     }
     if (cancellationDeadline && !/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(cancellationDeadline))
       throw new Error('Confirm the cancellation deadline in local property time.');
+    // Never publish tokenized management URLs into the family-readable trip node.
+    const safeBookingLink = bookingLink && !/[?&](?:token|pin|code|auth|key|confirmation|booking_id)=/i.test(bookingLink)
+      ? bookingLink : '';
     Object.assign(record, { address, phone, propertyEmail, confirmationNumber,
-      bookingLink, cancellationDeadline });
+      bookingLink: safeBookingLink, cancellationDeadline });
     field = 'hotels';
   } else if (category === 'flight') {
     const flightDate = date(input.date || input.checkIn);
