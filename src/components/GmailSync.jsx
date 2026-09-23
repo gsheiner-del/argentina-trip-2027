@@ -209,7 +209,7 @@ export default function GmailSync({ currentEmail, trip }) {
 
   const items = Object.entries(queue).filter(([, item]) => item && typeof item === 'object')
     .sort((a, b) => (b[1].receivedAt || '').localeCompare(a[1].receivedAt || ''));
-  const inRoute = item => !item.place ||
+  const inRoute = item => item.category === 'flight' || item.category === 'flight_extra' || !item.place ||
     (trip?.destinations || []).some(d => cityMatches(item.place, d.name));
   const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending' && inRoute(item));
   const outside = items.filter(([, item]) => item.status === 'outside_itinerary' ||
@@ -230,6 +230,14 @@ export default function GmailSync({ currentEmail, trip }) {
         updates['gmailImport/reviewQueue/' + id + '/reviewedBy'] = currentEmail;
         await update(ref(database), updates);
         setNotice('Approved: ' + result + ' ' + path + '. See the Destination tab.');
+      } else if (action === 'restore') {
+        if (item.status !== 'outside_itinerary') throw new Error('This email is not archived.');
+        await update(ref(database), {
+          ['gmailImport/reviewQueue/' + id + '/status']: 'pending',
+          ['gmailImport/reviewQueue/' + id + '/reviewedAt']: null,
+          ['gmailImport/reviewQueue/' + id + '/reviewedBy']: null
+        });
+        setNotice('Restored to Pending for manual review.');
       } else if (action === 'outside') {
         if (trip?.emailImports?.[id]) throw new Error('Already linked: remove from the trip separately.');
         await update(ref(database), {
@@ -284,7 +292,11 @@ export default function GmailSync({ currentEmail, trip }) {
         {!error && displayed.map(([id, item]) => filter === 'rejected' || filter === 'outside'
           ? <article key={id} className="gmail-review-card">
               <h4>{item.subject || 'Travel email'}</h4>
-              <p>{filter === 'outside' ? 'Outside current itinerary; hidden from regular review.' : 'Dismissed. No changes were made to the trip.'}</p>
+              <p>{filter === 'outside' ? 'Archived; restore flight confirmations to review.' : 'Dismissed. No changes were made to the trip.'}</p>
+              {filter === 'outside' && <button disabled={Boolean(busyId)}
+                onClick={() => act(id, item, 'restore').catch(e => setError(e.message))}>
+                Restore to Pending
+              </button>}
               {item.gmailUrl && <a href={item.gmailUrl} target="_blank" rel="noreferrer">
                 View in Gmail</a>}
             </article>
