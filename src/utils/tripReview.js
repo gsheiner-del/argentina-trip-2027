@@ -87,7 +87,7 @@ export function prepareApproval(trip, queue, emailId, options) {
   const now = Date.now();
   const base = { status: 'confirmed', source: 'Gmail review',
     reviewedAt: now, reviewedEmails: { [emailId]: true } };
-  let record, field;
+  let record, field, updatesPrivate = null;
   if (category === 'hotel') {
     const checkIn = date(input.checkIn), checkOut = date(input.checkOut);
     if (!checkIn || !checkOut || checkOut <= checkIn)
@@ -124,8 +124,14 @@ export function prepareApproval(trip, queue, emailId, options) {
     // Never publish tokenized management URLs into the family-readable trip node.
     const safeBookingLink = bookingLink && !/[?&](?:token|pin|code|auth|key|confirmation|booking_id)=/i.test(bookingLink)
       ? bookingLink : '';
-    Object.assign(record, { address, phone, propertyEmail, confirmationNumber,
-      bookingLink: safeBookingLink, cancellationDeadline });
+    Object.assign(record, { address, phone, propertyEmail,
+      cancellationDeadline });
+    // The trip node is readable by family viewers. Never publish confirmation
+    // numbers or reservation URLs there, even when their URL looks un-tokenized.
+    // Store both under the editor-only Gmail import tree instead.
+    if (confirmationNumber || bookingLink) {
+      updatesPrivate = { confirmationNumber, bookingLink };
+    }
     field = 'hotels';
   } else if (category === 'flight') {
     const flightDate = date(input.date || input.checkIn);
@@ -178,6 +184,11 @@ export function prepareApproval(trip, queue, emailId, options) {
     path = 'trip/destinations/' + idx + '/' + field + '/' + rows.length;
     record.id = 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 55);
     updates[path] = record;
+  }
+  if (updatesPrivate) {
+    updates['gmailImport/privateBookings/' + emailId] = {
+      ...updatesPrivate, targetPath: path, updatedAt: now
+    };
   }
   updates['trip/emailImports/' + emailId] = {
     category, destinationId: String(destinationId), targetPath: path, importedAt: now
