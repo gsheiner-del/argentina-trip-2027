@@ -168,27 +168,27 @@ function activityFields_(body) {
 function bookingMetadata_(message) {
   const plain = message.getPlainBody() || '';
   const html = (typeof message.getBody === 'function' ? message.getBody() : '') || '';
-  const stripped = html.replace(/<br\\s*\\/?\\s*>/gi, '\\n')
-    .replace(/<\\/(?:p|div|tr|li)>/gi, '\\n')
+  const stripped = html.replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/(?:p|div|tr|li)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
-  const body = plain + '\\n' + stripped;
+  const body = plain + '\n' + stripped;
   const field = labels => labelledLine_(body, labels).slice(0, 250);
-  const confirmation = body.match(/(?:confirmation number|booking number|reservation number|numero de confirmacion|numero de reserva)\\s*[:#]?\\s*([0-9]{6,14})/i);
-  const anchor = [...html.matchAll(/href\\s*=\\s*["'](https:\\/\\/[^"'<> ]+)["']/gi)]
+  const confirmation = body.match(/(?:confirmation number|booking number|reservation number|numero de confirmacion|numero de reserva)\s*[:#]?\s*([0-9]{6,14})/i);
+  const anchor = [...html.matchAll(/href\s*=\s*["'](https:\/\/[^"'<> ]+)["']/gi)]
     .map(x => x[1].replace(/&amp;/g, '&')).find(url => {
-      try { const u = new URL(url); return /(^|\\.)booking\\.com$/i.test(u.hostname) &&
+      try { const u = new URL(url); return /(^|\.)booking\.com$/i.test(u.hostname) &&
         /(?:booking|reservation|manage|confirmation)/i.test(u.pathname + u.search); }
       catch { return false; }
     });
   const email = field('(?:property |hotel )?e-?mail|contact email');
   const phone = field('(?:property |hotel )?(?:phone|telephone|tel\\.?|telefono)');
   const deadline = field('free cancellation until|cancel for free until|cancellation deadline|cancelacion gratuita hasta');
-  const dateMatch = deadline.match(/20\\d{2}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}/);
+  const dateMatch = deadline.match(/20\d{2}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
   return {
     address: field('(?:property )?address|direccion'),
-    phone: (phone.match(/\\+?[0-9][0-9 ()-]{7,22}/) || [])[0] || '',
-    propertyEmail: (email.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i) || [])[0] || '',
+    phone: (phone.match(/\+?[0-9][0-9 ()-]{7,22}/) || [])[0] || '',
+    propertyEmail: (email.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0] || '',
     confirmationNumber: confirmation ? confirmation[1] : '',
     bookingLink: anchor || '',
     cancellationDeadline: dateMatch ? dateMatch[0].replace(' ', 'T') : ''
@@ -411,7 +411,7 @@ function sendCancellationReminders() {
   const seen = new Set();
   for (const stay of records) {
     if (!/confirm|booked/i.test(stay.status || '') || /cancel/i.test(stay.status || '')) continue;
-    if (!/^20\\d{2}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(stay.cancellationDeadline || '')) continue;
+    if (!/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(stay.cancellationDeadline || '')) continue;
     // Without a verified property time zone, the deadline cannot be safely
     // converted to an instant. Use calendar dates to avoid false precision.
     const deadlineDate = new Date(stay.cancellationDeadline.slice(0, 10) + 'T00:00:00Z');
@@ -424,8 +424,8 @@ function sendCancellationReminders() {
     seen.add(key);
     MailApp.sendEmail('gsheiner@gmail.com',
       'Argentina 2027: cancellation deadline in ' + days + ' day(s) — ' + stay.name,
-      'Stay: ' + stay.name + '\\nDeadline (property local time): ' +
-      stay.cancellationDeadline + '\\nReview your original confirmation in Gmail before cancelling.');
+      'Stay: ' + stay.name + '\nDeadline (property local time): ' +
+      stay.cancellationDeadline + '\nReview your original confirmation in Gmail before cancelling.');
     updates[key] = new Date().toISOString();
   }
   if (Object.keys(updates).length)
