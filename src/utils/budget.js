@@ -93,3 +93,43 @@ export function convertPlanningEstimate(raw, selectedCurrency, quote) {
     return value + ' · waiting for current exchange rates';
   }
 }
+
+/** Sum only explicit Preferred confirmed stays; never count alternatives twice. */
+export function selectedHotelCosts(trip, quote) {
+  const selections = trip?.hotelSelections || {};
+  const all = [...(trip?.destinations || []).flatMap(d => (d.hotels || []).map(h => ({...h, city:h.city || d.name}))),
+    ...Object.values(trip?.hotelBookings || {})];
+  const byId = new Map(all.filter(Boolean).map(h => [String(h.id), h]));
+  const ids = new Set(Object.values(selections).filter(id => id && id !== 'none').map(String));
+  let total = 0, count = 0, unpriced = 0;
+  for (const id of ids) {
+    const h = byId.get(id);
+    if (!h || !/confirm|booked/i.test(h.status || '') || /cancel/i.test(h.status || '')) continue;
+    let usd = Number.isFinite(h.priceUsd) ? h.priceUsd : null;
+    if (usd === null && h.price !== '' && h.price != null && Number.isFinite(Number(h.price))) {
+      try { usd = currencyToUsd(Number(h.price), h.currency || 'USD', quote); }
+      catch { /* Do not silently assume USD. */ }
+    }
+    if (usd === null) { unpriced++; continue; }
+    total += usd; count++;
+  }
+  return {total,count,unpriced};
+}
+
+export function bookedDomesticFlights(trip, quote) {
+  let total=0,count=0,unpriced=0;
+  const seen=new Set();
+  for (const dest of trip?.destinations || []) for (const f of dest.flights || []) {
+    if (!f || !/confirm|booked/i.test(f.status || '') || /cancel/i.test(f.status || '')) continue;
+    if (/^(TLV|BEN GURION)$/i.test(f.from || '') || /^(TLV|BEN GURION)$/i.test(f.to || '')) continue;
+    const key=[f.number,f.date,f.from,f.to].join('|');
+    if (seen.has(key)) continue; seen.add(key);
+    let usd=Number.isFinite(f.priceUsd)?f.priceUsd:null;
+    if (usd===null && f.price!=null && f.price!=='' && Number.isFinite(Number(f.price))) {
+      try { usd=currencyToUsd(Number(f.price),f.currency || 'USD',quote); } catch {}
+    }
+    if (usd===null) {unpriced++;continue;}
+    total+=usd;count++;
+  }
+  return {total,count,unpriced};
+}
