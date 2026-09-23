@@ -210,7 +210,7 @@ export default function App() {
         /confirm|booked/i.test(String(candidate.status || '')));
       if (!valid) throw new Error('Select a confirmed booking from this stay group.');
     }
-    await update(ref(database), { ['trip/hotelSelections/' + stayKey]: hotel?.id || null });
+    await update(ref(database), { ['trip/hotelSelections/' + stayKey]: hotel?.id || 'none' });
   };
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -273,7 +273,7 @@ export default function App() {
               <div className="summary-item"><span>Travelers</span><span>5 people</span></div>
               <div className="summary-item"><span>Route stops</span><span>{destinations.length}</span></div>
               <div className="summary-item"><span>Active hotel selections</span>
-                <span>{Object.values(tripData.hotelSelections || {}).filter(Boolean).length}</span></div>
+                <span>{Object.values(tripData.hotelSelections || {}).filter(id => id && id !== 'none').length}</span></div>
               <div className="summary-item"><span>Reviewed bookings</span>
                 <span>{Object.keys(tripData.bookingSummaries || {}).length}</span></div>
               <div className="summary-item"><span>Status</span><span>Planning in progress</span></div>
