@@ -121,9 +121,6 @@ export function prepareApproval(trip, queue, emailId, options) {
     }
     if (cancellationDeadline && !/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(cancellationDeadline))
       throw new Error('Confirm the cancellation deadline in local property time.');
-    // Never publish tokenized management URLs into the family-readable trip node.
-    const safeBookingLink = bookingLink && !/[?&](?:token|pin|code|auth|key|confirmation|booking_id)=/i.test(bookingLink)
-      ? bookingLink : '';
     Object.assign(record, { address, phone, propertyEmail,
       cancellationDeadline });
     // The trip node is readable by family viewers. Never publish confirmation
