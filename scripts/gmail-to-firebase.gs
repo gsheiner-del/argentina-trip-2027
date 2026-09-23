@@ -432,6 +432,8 @@ function sendCancellationReminders() {
     const key = id + '_' + stay.cancellationDeadline.replace(/[^0-9]/g, '') + '_' + days;
     if (sent[key] || seen.has(key)) continue;
     seen.add(key);
+    // Mark before sending to avoid repeated mail if the job is retried.
+    firebase_('patch', 'gmailImport/cancellationRemindersSent', { [key]: new Date().toISOString() });
     MailApp.sendEmail('gsheiner@gmail.com',
       'Argentina 2027: cancellation deadline in ' + days + ' day(s) — ' + stay.name,
       'Stay: ' + stay.name + '\nDeadline (property local time): ' +
