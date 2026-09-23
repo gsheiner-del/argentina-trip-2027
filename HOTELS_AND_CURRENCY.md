@@ -17,7 +17,7 @@ offering a separate, conflicting selection UI.
 
 - Multiple confirmed, pending, optional or cancelled reservations can be shown.
 - Only the two configured trip editors may import, add, edit or select hotels.
-- One **active** confirmed option per city + check-in date group; cancelled
+- One **active** confirmed option per city and overlapping-stay group (even when alternatives have different check-in dates); cancelled
   hotels remain in the list but cannot be activated. Editors may also clear
   a selection, including a selection inherited from the older itinerary.
 - The data from the user's Booking.com screenshot should be imported from
