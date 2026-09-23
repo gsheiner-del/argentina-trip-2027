@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import './DestinationDetail.css';
 import CostTracker from './CostTracker';
+import StayOptions from './StayOptions';
+import NearbyExplore from './NearbyExplore';
 
-export default function DestinationDetail({ destinations, selectedId, userRole, onUpdateBooking, onUpdateCosts, onOpenHotelBookings }) {
+export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onUpdateCosts, onSelectPreferred, onImportScreenshot }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
@@ -76,95 +78,77 @@ export default function DestinationDetail({ destinations, selectedId, userRole, 
 
         <div className="tab-content">
           {activeTab === 'stays' && (
-            <section className="destination-stays-redirect">
-              <h3>Accommodation in {current.name}</h3>
-              <p>Compare every hotel and alternative for this destination,
-                review cancellation status and see which booking is active.</p>
-              <button type="button" onClick={() => onOpenHotelBookings?.(current.id)}>
-                Open Hotels &amp; bookings
-              </button>
-            </section>
+            <StayOptions trip={trip} destination={current} userRole={userRole}
+              onSelect={onSelectPreferred} onImport={onImportScreenshot}/>
           )}
+
           {activeTab === 'flights' && (
-            <div>
+            <section className="destination-flights">
               <h3>Flights</h3>
-              {current.flights?.length > 0 ? current.flights.map((flight, idx) => (
-                <div key={idx} className="flight-card">
+              <p>Confirmed flights from Gmail Review appear alongside previously entered flight plans.
+                Duplicate passenger confirmations can enrich the same flight card.</p>
+              {current.flights?.length ? current.flights.map((flight, idx) => (
+                <article className="flight-card" key={flight.id || idx}>
                   <div className="flight-header">
                     <h4>{flight.airline} {flight.number}</h4>
-                    <span className="status">{flight.status}</span>
+                    <span className="status">{flight.status || 'Planning'}</span>
+                    {flight.reviewedEmails && <span className="badge">✓ Approved via Gmail</span>}
                   </div>
+                  {flight.date && <p>📅 {flight.date}</p>}
                   <div className="flight-details">
-                    <div><strong>{flight.from}</strong> → {flight.departure}</div>
-                    <div><strong>{flight.to}</strong> → {flight.arrival}</div>
+                    <div><strong>{flight.from || 'Departure TBD'}</strong> → {flight.departure || 'Time TBD'}</div>
+                    <div><strong>{flight.to || 'Arrival TBD'}</strong> → {flight.arrival || 'Time TBD'}</div>
                   </div>
-                  {flight.bookingLink && (
-                    <div className="booking-link">
-                      <a href={flight.bookingLink} target="_blank" rel="noopener noreferrer">
-                        🔗 View Booking
-                      </a>
-                    </div>
+                  {flight.notes && <p>{flight.notes}</p>}
+                  {/^https:\/\//i.test(flight.bookingLink || '') && (
+                    <div className="booking-link"><a href={flight.bookingLink}
+                      target="_blank" rel="noopener noreferrer">View airline ↗</a></div>
                   )}
                   {userRole === 'edit' && (
                     <div className="edit-booking">
-                      {editingBookingId === `flight-${idx}` ? (
+                      {editingBookingId === 'flight-' + idx ? (
                         <div className="booking-input">
-                          <input
-                            type="text"
-                            placeholder="Flight confirmation link or booking number"
-                            value={bookingLink}
-                            onChange={(e) => setBookingLink(e.target.value)}
-                          />
+                          <input type="url" placeholder="Public airline link (HTTPS, not booking code)"
+                            value={bookingLink} onChange={e => setBookingLink(e.target.value)}/>
                           <button onClick={() => {
-                            onUpdateBooking?.(current.id, `flight-${idx}`, bookingLink);
+                            onUpdateBooking?.(current.id, 'flight-' + idx, bookingLink);
                             setEditingBookingId(null);
                           }}>Save</button>
                           <button onClick={() => setEditingBookingId(null)}>Cancel</button>
                         </div>
-                      ) : (
-                        <button onClick={() => {
-                          setEditingBookingId(`flight-${idx}`);
-                          setBookingLink(flight.bookingLink || '');
-                        }}>
-                          {flight.bookingLink ? '✏️ Edit Link' : '+ Add Booking Link'}
-                        </button>
-                      )}
+                      ) : <button onClick={() => {
+                        setEditingBookingId('flight-' + idx);
+                        setBookingLink(flight.bookingLink || '');
+                      }}>{flight.bookingLink ? 'Edit link' : '+ Add airline link'}</button>}
                     </div>
                   )}
-                </div>
-              )) : <p>No flights available</p>}
-            </div>
+                </article>
+              )) : <p>No flights added yet. Use Gmail Review to approve confirmed flight details.</p>}
+            </section>
           )}
 
           {activeTab === 'activities' && (
-            <div>
-              <h3>Activities & Tours</h3>
-              {current.activities?.map((activity, idx) => (
-                <div key={idx} className="activity-card">
+            <section className="destination-activities">
+              <h3>Activities &amp; Tours</h3>
+              {current.activities?.length ? current.activities.map((activity, idx) => (
+                <article key={activity.id || idx} className="activity-card">
                   <h4>{activity.name}</h4>
-                  <p>{activity.description}</p>
-                  <p className="date">{activity.date}</p>
-                </div>
-              ))}
-            </div>
+                  {activity.reviewedEmails && <span className="badge">✓ Approved via Gmail</span>}
+                  {activity.description && <p>{activity.description}</p>}
+                  <p className="date">{activity.date || 'Date to be confirmed'}
+                    {activity.time ? ' · ' + activity.time : ''}</p>
+                  {activity.organizer && <p>Organizer: {activity.organizer}</p>}
+                  {activity.meetingPoint && <p>Meeting point: {activity.meetingPoint}</p>}
+                  {/^https:\/\//i.test(activity.bookingLink || '') &&
+                    <a target="_blank" rel="noopener noreferrer"
+                      href={activity.bookingLink}>View tour ↗</a>}
+                </article>
+              )) : <p>No activities yet. Confirm tours in Gmail Review or add them to this destination.</p>}
+            </section>
           )}
 
           {activeTab === 'nearby' && (
-            <div>
-              <h3>Nearby Recommendations</h3>
-              {current.nearby?.map((place, idx) => (
-                <div key={idx} className="nearby-card">
-                  <div className="nearby-icon">{place.icon}</div>
-                  <div className="nearby-content">
-                    <h4>{place.name}</h4>
-                    <p className="category">{place.category}</p>
-                    <p className="distance">📍 {place.distance}</p>
-                    <p className="description">{place.description}</p>
-                    <p className="rating">⭐ {place.rating}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <NearbyExplore destination={current} trip={trip}/>
           )}
           {activeTab === 'costs' && (
             <div>
