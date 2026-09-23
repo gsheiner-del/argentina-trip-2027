@@ -103,3 +103,15 @@ test('EL AL HTML ticket receipt extracts both legs without leaking passenger ide
   assert.ok(!JSON.stringify(record).includes('123456789'));
   assert.ok(!JSON.stringify(record).includes('0987654321'));
 });
+
+test('Booking.com receipt extracts location, confirmation and local cancellation deadline', () => {
+  const record = extract_(email('Your booking is confirmed at Mirador del Kaiken',
+    'Ushuaia Argentina March 2027\\nCheck-in: March 9, 2027\\nCheck-out: March 11, 2027\\n' +
+    'Location: Calle Laguna de los Témpanos 1117, Ushuaia\\n' +
+    'Confirmation: 1234567890\\nFree cancellation until March 7, 2027 11:59 PM',
+    'booking1', '<a href="https://www.booking.com/booking.html?token=secret">Manage booking</a>'));
+  assert.equal(record.address, 'Calle Laguna de los Témpanos 1117, Ushuaia');
+  assert.equal(record.confirmationNumber, '1234567890');
+  assert.equal(record.cancellationDeadline, '2027-03-07T23:59');
+  assert.match(record.bookingLink, /^https:\/\/www.booking.com\/booking.html/);
+});
