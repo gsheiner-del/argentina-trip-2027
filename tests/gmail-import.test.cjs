@@ -311,18 +311,20 @@ test('EL AL forward reconstructs flight legs from HTML block text when Apps Scri
 });
 
 
-test('Forwarded Airbnb confirmation for El Chalten is staged as an editable hotel review', () => {
-  const message = email(
-    'Fwd: Confirmed: Your reservation for 12–16 Mar',
-    ['Forwarded message', 'From: Airbnb <automated@airbnb.com>',
-     'Subject: Confirmed: Your reservation for 12–16 Mar',
-     "You're all set for El Chalten",
-     '["Mutisia\\'s Home" - Cómoda y amplia casa patagónica-]',
-     'Check-in', 'Fri, 12 Mar 2027', 'Check-out', 'Tue, 16 Mar 2027',
-     'Address', 'Cabo Garcia 85, El Chalten, Santa Cruz, Argentina',
-     'Free cancellation before 16:00 on 11 March'].join('\\n'),
-    'forwarded-airbnb');
-  const result = extract_(message);
+
+test('Forwarded Airbnb confirmation stages a hotel review', () => {
+  const body = [
+    'Forwarded message',
+    'From: Airbnb <automated@airbnb.com>',
+    'Subject: Confirmed: Your reservation for 12–16 Mar',
+    "You're all set for El Chalten",
+    `["Mutisia's Home" - Cómoda y amplia casa patagónica-]`,
+    'Check-in', 'Fri, 12 Mar 2027',
+    'Check-out', 'Tue, 16 Mar 2027',
+    'Address', 'Cabo Garcia 85, El Chalten, Santa Cruz, Argentina'
+  ].join(String.fromCharCode(10));
+  const result = extract_(email('Fwd: Confirmed: Your reservation for 12–16 Mar',
+    body, 'forwarded-airbnb'));
   assert.equal(result.category, 'hotel');
   assert.equal(result.place, 'El Chaltén');
   assert.equal(result.checkIn, '2027-03-12');
