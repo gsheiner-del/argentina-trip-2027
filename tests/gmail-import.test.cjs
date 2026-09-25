@@ -309,3 +309,37 @@ test('EL AL forward reconstructs flight legs from HTML block text when Apps Scri
   const donor = buildFlightDonors_([msg]);
   assert.equal(Object.keys(donor.donorMap).length, 1);
 });
+
+
+
+test('Forwarded Airbnb confirmation stages a hotel review', () => {
+  const body = [
+    'Forwarded message',
+    'From: Airbnb <automated@airbnb.com>',
+    'Subject: Confirmed: Your reservation for 12–16 Mar',
+    "You're all set for El Chalten",
+    `["Mutisia's Home" - Cómoda y amplia casa patagónica-]`,
+    'Check-in', 'Fri, 12 Mar 2027',
+    'Check-out', 'Tue, 16 Mar 2027',
+    'Address', 'Cabo Garcia 85, El Chalten, Santa Cruz, Argentina'
+  ].join(String.fromCharCode(10));
+  const result = extract_(email('Fwd: Confirmed: Your reservation for 12–16 Mar',
+    body, 'forwarded-airbnb'));
+  assert.equal(result.category, 'hotel');
+  assert.equal(result.place, 'El Chaltén');
+  assert.equal(result.checkIn, '2027-03-12');
+  assert.equal(result.checkOut, '2027-03-16');
+  assert.equal(result.status, 'pending');
+  assert.ok(!('body' in result));
+});
+
+test('Forwarded Airbnb HTML itinerary survives missing plain-text destination', () => {
+  const html = '<div>From: Airbnb</div><div>Confirmed: Your reservation</div>' +
+    '<div>El Chalten Argentina</div><div>Check-in</div><div>12 Mar 2027</div>' +
+    '<div>Check-out</div><div>16 Mar 2027</div>';
+  const result = extract_(email('Fwd: Confirmed: Your reservation for 12–16 Mar',
+    'From: Airbnb. See reservation details in HTML.', 'airbnb-html', html));
+  assert.equal(result.category, 'hotel');
+  assert.equal(result.checkIn, '2027-03-12');
+  assert.equal(result.checkOut, '2027-03-16');
+});

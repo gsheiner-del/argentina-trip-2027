@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-elal-html-fallback-v8';
+const IMPORTER_VERSION = '2026-09-26-airbnb-review-v10';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -39,6 +39,8 @@ function category_(subject, body) {
   const title = clean_(subject);
   const text = clean_(subject + ' ' + body.slice(0, 1400));
   if (/electronic miscellaneous document|chargeable seat/.test(text)) return 'flight_extra';
+  if (/airbnb/.test(text) && /confirmed|reservation|you.re all set/.test(text))
+    return 'hotel';
   if (/booking.+(?:hotel|apartment|apart|alojamiento)|confirmed at|booking canceled/.test(title)) return 'hotel';
   if (/flight|itinerary|e.ticket|el al|aerolineas|boarding/.test(title)) return 'flight';
   if (/transfer|rent.a.car|car rental|shuttle/.test(title)) return 'transport';
@@ -316,12 +318,26 @@ function bookingMetadata_(message) {
 
 function extract_(message) {
   const subject = message.getSubject() || '';
-  const body = message.getPlainBody() || '';
+  const plain = message.getPlainBody() || '';
+  // In forwarded Airbnb messages, the full listing and travel dates may
+  // survive only in HTML. Derive an ephemeral body; do not store it.
+  const html = typeof message.getBody === 'function' ? (message.getBody() || '') : '';
+  const nl = String.fromCharCode(10);
+  const htmlText = html.replace(/<br\s*\/?>/gi, nl)
+    .replace(/<\/(?:p|div|tr|td|li|h[1-6])>/gi, nl)
+    .replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&');
+  const airbnb = /airbnb/i.test(subject + ' ' + plain.slice(0, 700) + ' ' + htmlText.slice(0, 700));
+  const body = airbnb ? plain + nl + htmlText : plain;
   if (!onlyTripMessage_(subject, body)) return null;
   const cancellationFlag = /booking cancelle?d|booking canceled|reservation (?:has been )?cancelled|reserva cancelada/i.test(
     subject + ' ' + body.slice(0, 500));
   const category = category_(subject, body);
   let title = subject.replace(/^\s*(?:🛄\s*)?(?:Thanks!?\s*Your booking is confirmed at|You have a message from)\s*/i, '').trim();
+  if (category === 'hotel' && airbnb) {
+    const listing = body.match(/["“]([^"”\n]{3,110})["”]\s*-\s*[^\n]{3,80}/);
+    title = listing ? listing[1].trim() : 'Airbnb reservation — verify property';
+  }
   if (category === 'flight_extra') title = 'Airline seat / supplementary document';
   else if (category === 'flight') title = 'Flight or ticket — confirm details';
   if (cancellationFlag) title = 'Cancellation — review original email';
@@ -537,8 +553,8 @@ function syncGmailToFirebase() {
     if (existing[id] || incoming[id]) continue; // Never reset past approvals.
     const parsed = linkedFlightDetails_(message, extract_(message), donors);
     if (parsed) {
-      if (parsed.category === 'hotel' && parsed.place && routeCities.length &&
-          !routeCities.includes(clean_(parsed.place))) parsed.status = 'outside_itinerary';
+      // Even an off-route booking deserves manual review. Do not hide new
+      // bookings solely because their city isn't in the current itinerary.
       incoming[id] = parsed;
       matched++;
     }
@@ -677,6 +693,9 @@ function diagnoseGmailSync() {
     completeItineraryDonors: 0,
     ambiguousItineraries: 0,
     unmatchedAncillaryEmails: 0,
+    airbnbLabelMessages: 0,
+    airbnbRecognized: 0,
+    airbnbAlreadyStaged: 0,
     flightBodySources: { plain: 0, html: 0, neither: 0 },
     firebaseIdsMatched: 0,
     rowsWithMissingFields: 0,
@@ -719,7 +738,11 @@ function diagnoseGmailSync() {
   for (const thread of allThreads) {
     for (const msg of thread.getMessages()) {
       const id = 'm_' + msg.getId();
+      const isAirbnb = /airbnb/i.test((msg.getSubject() || '') + ' ' +
+        (msg.getPlainBody() || '').slice(0, 900));
+      if (isAirbnb) counters.airbnbLabelMessages++;
       const present = current[id];
+      if (isAirbnb && present) counters.airbnbAlreadyStaged++;
       if (present) counters.firebaseIdsMatched++;
       let parsed;
       try { parsed = linkedFlightDetails_(msg, extract_(msg), donors); } catch {
@@ -728,6 +751,7 @@ function diagnoseGmailSync() {
       }
       if (!parsed) continue;
       counters.matchedMessages++;
+      if (isAirbnb) counters.airbnbRecognized++;
       if (parsed.flightDetailsSource) counters.linkedFlightEmails++;
       if (parsed.category === 'flight_extra' &&
           !(Array.isArray(parsed.segments) && parsed.segments.length)) {

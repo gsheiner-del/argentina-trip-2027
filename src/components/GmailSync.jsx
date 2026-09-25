@@ -46,6 +46,8 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     item.address, item.phone, item.propertyEmail, item.confirmationNumber, item.bookingLink, item.cancellationDeadline, item.departure, item.arrival, item.arrivalDate, item.segments]);
 
   const setField = (field, value) => setDraft(prev => ({ ...prev, [field]: value }));
+  const suggestedCityOutsideRoute = item.place && !(trip.destinations || [])
+    .some(dest => cityMatches(item.place, dest.name));
   const matches = useMemo(() =>
     destinationId ? likelyMatches(trip, category, destinationId, draft) : [],
     [trip, category, destinationId, draft]);
@@ -86,6 +88,11 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
         onClick={() => onAction(itemId, item, 'outside').catch(e => setError(e.message))}>
         Archive · outside itinerary
       </button>}
+      {suggestedCityOutsideRoute && <p className="gmail-warning">
+        This booking mentions {item.place}, which is not in the current itinerary.
+        You can review it here, but only select a destination if it is genuinely
+        part of this trip. Otherwise dismiss or archive it.
+      </p>}
       <div className="gmail-review-fields">
         <label>Send to
           <select value={category} onChange={e => {
@@ -228,11 +235,11 @@ export default function GmailSync({ currentEmail, trip }) {
 
   const items = Object.entries(queue).filter(([, item]) => item && typeof item === 'object')
     .sort((a, b) => (b[1].receivedAt || '').localeCompare(a[1].receivedAt || ''));
-  const inRoute = item => item.category === 'flight' || item.category === 'flight_extra' || !item.place ||
-    (trip?.destinations || []).some(d => cityMatches(item.place, d.name));
-  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending' && inRoute(item));
-  const outside = items.filter(([, item]) => item.status === 'outside_itinerary' ||
-    ((item.status || 'pending') === 'pending' && !inRoute(item)));
+  // Editors must be able to review even if a forwarded booking mentions a city
+  // excluded from the current itinerary. The location belongs to the booking,
+  // not necessarily the destination selected for publication.
+  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending');
+  const outside = items.filter(([, item]) => item.status === 'outside_itinerary');
   const unlinked = items.filter(([id, item]) =>
     item.status === 'approved' && !trip?.emailImports?.[id]);
   const displayed = filter === 'pending' ? pending : filter === 'approved' ? unlinked
@@ -258,7 +265,8 @@ export default function GmailSync({ currentEmail, trip }) {
           ['gmailImport/reviewQueue/' + id + '/reviewedAt']: null,
           ['gmailImport/reviewQueue/' + id + '/reviewedBy']: null
         });
-        setNotice('Restored to Pending for manual review.');
+        setFilter('pending');
+        setNotice('Restored to Pending. Select a destination or dismiss this booking.');
       } else if (action === 'outside') {
         if (trip?.emailImports?.[id]) throw new Error('Already linked: remove from the trip separately.');
         await update(ref(database), {
@@ -322,7 +330,7 @@ export default function GmailSync({ currentEmail, trip }) {
         {!error && displayed.map(([id, item]) => filter === 'rejected' || filter === 'outside'
           ? <article key={id} className="gmail-review-card">
               <h4>{item.subject || 'Travel email'}</h4>
-              <p>{filter === 'outside' ? 'Archived; restore flight confirmations to review.' : 'Dismissed. No changes were made to the trip.'}</p>
+              <p>{filter === 'outside' ? 'Archived as outside itinerary. Restore to review this accommodation or flight.' : 'Dismissed. No changes were made to the trip.'}</p>
               {filter === 'outside' && <button disabled={Boolean(busyId)}
                 onClick={() => act(id, item, 'restore').catch(e => setError(e.message))}>
                 Restore to Pending
