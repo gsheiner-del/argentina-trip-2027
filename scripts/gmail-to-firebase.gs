@@ -231,7 +231,7 @@ function bookingMetadata_(message) {
     address: field('(?:property )?address|location|direccion'),
     phone: (phone.match(/\+?[0-9][0-9 ()-]{7,22}/) || [])[0] || '',
     propertyEmail: (email.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0] || '',
-    confirmationNumber: confirmation ? confirmation[1] : '',
+    confirmationNumber: anchor && confirmation ? confirmation[1] : '',
     bookingLink: anchor || '',
     cancellationDeadline
   };
