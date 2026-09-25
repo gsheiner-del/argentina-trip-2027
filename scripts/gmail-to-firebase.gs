@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-diagnostics-v2';
+const IMPORTER_VERSION = '2026-09-25-field-coverage-v3';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -581,7 +581,13 @@ function diagnoseGmailSync() {
     rowsWithMissingFields: 0,
     fieldsReadyToFill: {},
     byType: {},
-    sampleCategories: []
+    sampleCategories: [],
+    fieldCoverage: {
+      hotel: { messages: 0, extracted: {}, stored: {}, bothEmpty: {} },
+      flight: { messages: 0, extracted: {}, stored: {}, bothEmpty: {} },
+      flight_extra: { messages: 0, extracted: {}, stored: {}, bothEmpty: {} },
+      other: { messages: 0, extracted: {}, stored: {}, bothEmpty: {} }
+    }
   };
   for (const thread of allThreads) {
     for (const msg of thread.getMessages()) {
@@ -596,6 +602,22 @@ function diagnoseGmailSync() {
       if (!parsed) continue;
       counters.matchedMessages++;
       counters.byType[parsed.category] = (counters.byType[parsed.category] || 0) + 1;
+      const coverage = counters.fieldCoverage[parsed.category] || counters.fieldCoverage.other;
+      coverage.messages++;
+      const fields = parsed.category === 'hotel'
+        ? ['checkIn', 'checkOut', 'address', 'phone', 'bookingLink', 'cancellationDeadline']
+        : parsed.category === 'flight' || parsed.category === 'flight_extra'
+          ? ['number', 'date', 'from', 'to', 'departure', 'arrival', 'segments']
+          : ['date', 'time', 'meetingPoint'];
+      for (const field of fields) {
+        const hasValue = (object) => object &&
+          object[field] != null && object[field] !== '' &&
+          (!Array.isArray(object[field]) || object[field].length > 0);
+        if (hasValue(parsed)) coverage.extracted[field] = (coverage.extracted[field] || 0) + 1;
+        if (hasValue(present)) coverage.stored[field] = (coverage.stored[field] || 0) + 1;
+        if (!hasValue(parsed) && !hasValue(present))
+          coverage.bothEmpty[field] = (coverage.bothEmpty[field] || 0) + 1;
+      }
       const populated = Object.keys(parsed).filter(key =>
         ['number','date','from','to','departure','arrival','segments','checkIn','checkOut',
           'address','phone','bookingLink','cancellationDeadline'].includes(key) &&
