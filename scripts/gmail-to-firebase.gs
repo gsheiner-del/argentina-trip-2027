@@ -268,7 +268,7 @@ function bookingMetadata_(message) {
       break;
     }
   }
-  const deadlineSource = deadlineLine || freeCostDeadline ||
+  const deadlineSource = freeCostDeadline || deadlineLine ||
     (cancellationText ? cancellationText[1] : '');
   const iso = deadlineSource.match(/20\d{2}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
   const dateValue = parseDate_(deadlineSource);
