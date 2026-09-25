@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-elal-link-v6';
+const IMPORTER_VERSION = '2026-09-25-elal-source-v7';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -354,7 +354,15 @@ function flightPairKey_(message) {
   const subject = String(message.getSubject() || '');
   if (!/el\s*al/i.test(subject)) return '';
   const passenger = subject.match(/\b([A-Z][A-Z'-]{1,})\/([A-Z][A-Z'-]{1,})\s*:/i);
-  const body = String(message.getPlainBody() || '');
+  // Gmail's plain body and HTML body may differ, especially for forwarded
+  // airline tickets. Check BOTH; never persist or log the matched code.
+  const plain = String(message.getPlainBody() || '');
+  const html = typeof message.getBody === 'function'
+    ? String(message.getBody() || '') : '';
+  const htmlText = html.replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/\s+/g, ' ');
+  const body = plain + '\n' + htmlText;
   const code = body.match(/\bbooking\s+code\s*:?\s*([A-Z0-9]{5,12})\b/i);
   if (!passenger || !code) return '';
   return (passenger[1] + '/' + passenger[2] + ':' + code[1]).toUpperCase();
@@ -667,6 +675,23 @@ function diagnoseGmailSync() {
   const donors = buildFlightDonors_(allThreads.flatMap(thread => thread.getMessages()));
   counters.completeItineraryDonors = Object.keys(donors.donorMap).length;
   counters.ambiguousItineraries = donors.ambiguous.size;
+  // Aggregate stage counters identify which gate fails, without exposing
+  // traveler names, message IDs, email text or private booking codes.
+  counters.subjectAndBookingMatched = 0;
+  counters.itinerariesWithSegments = 0;
+  counters.matchableItineraries = 0;
+  counters.unmatchedDueToMissingCodeOrSubject = 0;
+  const allMessages = allThreads.flatMap(thread => thread.getMessages());
+  for (const diagnosticMsg of allMessages) {
+    const extracted = extract_(diagnosticMsg);
+    const full = extracted?.category === 'flight' &&
+      Array.isArray(extracted.segments) && extracted.segments.length;
+    const linked = !!flightPairKey_(diagnosticMsg);
+    if (linked) counters.subjectAndBookingMatched++;
+    if (full) counters.itinerariesWithSegments++;
+    if (full && linked) counters.matchableItineraries++;
+    if (full && !linked) counters.unmatchedDueToMissingCodeOrSubject++;
+  }
   for (const thread of allThreads) {
     for (const msg of thread.getMessages()) {
       const id = 'm_' + msg.getId();
