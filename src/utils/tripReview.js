@@ -213,7 +213,7 @@ export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) 
     const number = safe(leg.number, 30).toUpperCase();
     const flightDate = date(leg.date);
     const from = safe(leg.from, 90), to = safe(leg.to, 90);
-    if (!number || !flightDate || !from || !to || !/^\\d{2}:\\d{2}$/.test(leg.departure || ''))
+    if (!number || !flightDate || !from || !to || !/^([01]\d|2[0-3]):[0-5]\d$/.test(leg.departure || ''))
       throw new Error('Verify each leg’s flight number, airports, date and departure time.');
     const matching = flights.map((row, i) => ({ row, i })).filter(({ row }) =>
       norm(row.number) === norm(number) &&
