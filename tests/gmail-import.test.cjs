@@ -264,3 +264,24 @@ test('Duplicate real-world receipt formats do not invalidate a complete EL AL it
   assert.equal(donors.ambiguous.size, 0);
   assert.equal(linkedFlightDetails_(ancillary, extract_(ancillary), donors).segments.length, 2);
 });
+
+
+test('EL AL booking key is recovered from HTML when forwarded plain text omits the code', () => {
+  const route = [
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: IA',
+    'LY41', '18:15', '07Mar2027', '05:40', '08Mar2027',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: P',
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'LY42', '09:00', '24Mar2027', '05:15', '25Mar2027'
+  ].join('\n');
+  const html = '<div>Booking code</div><span>ABC123</span>';
+  const receipt = email('SMITH/MARINA: Your EL AL Booking Confirmation', route, 'full-html', html);
+  const ancillary = email('SMITH/MARINA: Your EL AL Booking Confirmation',
+    'Electronic Miscellaneous Document, Argentina March 2027. Booking code ABC123', 'emd');
+  const donor = buildFlightDonors_([receipt, ancillary]);
+  assert.equal(donor.ambiguous.size, 0);
+  const linked = linkedFlightDetails_(ancillary, extract_(ancillary), donor);
+  assert.equal(linked.segments.length, 2);
+  assert.ok(!JSON.stringify(linked).includes('ABC123'));
+});
