@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { database, ref, onValue, update } from '../firebase';
-import { existingRecords, likelyMatches, prepareApproval, prepareMultiFlightApproval } from '../utils/tripReview.js';
+import { existingRecords, likelyMatches, samePropertyOptions, supersededReviewIds, prepareApproval, prepareMultiFlightApproval } from '../utils/tripReview.js';
 import { cityMatches } from '../utils/tripReview.js';
 import '../styles/GmailSync.css';
 
@@ -11,7 +11,7 @@ const initDraft = item => {
   // segments but its legacy single-flight fields are missing.
   const firstLeg = Array.isArray(item.segments) ? item.segments[0] || {} : {};
   return {
-  title: item.title || '', place: item.place || '',
+  title: (item.title || '').replace(/^(?:your updated booking at|your booking is confirmed at)\s+/i, ''), place: item.place || '',
   checkIn: item.checkIn || '', checkOut: item.checkOut || '',
   date: item.date || firstLeg.date || item.checkIn || '',
   number: item.number || firstLeg.number || '', airline: item.airline || '',
@@ -37,6 +37,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
   const [destinationId, setDestinationId] = useState(() =>
     (trip.destinations || []).find(dest => cityMatches(item.place, dest.name))?.id || '');
   const [existingPath, setExistingPath] = useState('');
+  const [confirmedDateChange, setConfirmedDateChange] = useState(false);
   const [replaceConflicts, setReplaceConflicts] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -55,10 +56,20 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     destinationId ? existingRecords(trip, category, destinationId) : [],
     [trip, category, destinationId]);
   const selected = matchList.find(m => m.sourcePath === existingPath);
+  const sameProperty = useMemo(() =>
+    category === 'hotel' && destinationId
+      ? samePropertyOptions(trip, destinationId, draft) : [],
+    [category, destinationId, trip, draft.title, draft.place]);
+  const datesDiffer = Boolean(selected && category === 'hotel' &&
+    (selected.checkIn && selected.checkIn !== draft.checkIn ||
+     selected.checkOut && selected.checkOut !== draft.checkOut));
+  const cityAgrees = category !== 'hotel' || !destinationId ||
+    cityMatches(draft.place, (trip.destinations || []).find(d => String(d.id) === String(destinationId))?.name);
   const conflicts = matches.find(m => m.sourcePath === existingPath)?.conflicts || [];
   const multiFlight = category === 'flight' && (item.segments || []).length > 1;
   const canApprove = multiFlight ? !item.cancellationFlag && Boolean(destinationId) :
     !item.cancellationFlag && draft.title.trim() && destinationId &&
+    cityAgrees && (!datesDiffer || confirmedDateChange) &&
     (existingPath || matches.length === 0);
 
   const approve = async () => {
@@ -66,7 +77,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     try {
       await onAction(itemId, item, 'approve', {
         category, destinationId, existingPath,
-        replaceConflicts, draft, multiFlight
+        replaceConflicts, replaceDates: confirmedDateChange, draft, multiFlight
       });
     } catch (e) { setError(e.message || 'Could not approve this record.'); }
   };
@@ -101,7 +112,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
         </label>
         <label>Destination
           <select value={destinationId} onChange={e => {
-            setDestinationId(e.target.value); setExistingPath('');
+            setDestinationId(e.target.value); setExistingPath(''); setConfirmedDateChange(false);
           }}>
             <option value="">Select destination</option>
             {(trip.destinations || []).map(dest =>
@@ -174,13 +185,22 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             onChange={e => setField('notes', e.target.value)}/>
         </label>
       </div>
+      {category === 'hotel' && destinationId && !cityAgrees &&
+        <p className="gmail-error">Hotel city and selected destination do not match.
+          Choose the matching destination; for Buenos Aires use Buenos Aires (Return)
+          for your return visit.</p>}
       {destinationId && !multiFlight && <div className="gmail-match-panel">
         <strong>Link this email to a destination record</strong>
+        {sameProperty.length > 0 && <p className="gmail-warning">
+          This property already has {sameProperty.length} saved booking option(s).
+          Compare dates and booking confirmation before creating another option.
+          An amended reservation may need its existing record updated.
+        </p>}
         {matches.length > 0 &&
           <p className="gmail-warning">{matches.length} potential duplicate(s) found.
             Select an existing record. Creating a duplicate is disabled.</p>}
         <select value={existingPath} onChange={e => {
-          setExistingPath(e.target.value); setReplaceConflicts(false);
+          setExistingPath(e.target.value); setReplaceConflicts(false); setConfirmedDateChange(false);
         }}>
           <option value="">{matches.length
             ? 'Select an existing match before approval'
@@ -191,6 +211,14 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
               {matches.some(x => x.sourcePath === record.sourcePath) ? ' ★ likely match' : ''}
             </option>)}
         </select>
+        {datesDiffer && <label className="gmail-conflict">
+          <input type="checkbox" checked={confirmedDateChange}
+            onChange={e => setConfirmedDateChange(e.target.checked)}/>
+          This booking has revised dates. Update the selected reservation from
+          {selected.checkIn || '?'}–{selected.checkOut || '?'} to
+          {draft.checkIn || '?'}–{draft.checkOut || '?'} after checking the
+          confirmation number in the original email.
+        </label>}
         {selected && <p className="gmail-muted">
           Existing: {selected.displayName || selected.name}; only missing fields are
           filled automatically. Existing confirmed data will not be overwritten.
@@ -238,7 +266,10 @@ export default function GmailSync({ currentEmail, trip }) {
   // Editors must be able to review even if a forwarded booking mentions a city
   // excluded from the current itinerary. The location belongs to the booking,
   // not necessarily the destination selected for publication.
-  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending');
+  const [showSuperseded, setShowSuperseded] = useState(false);
+  const superseded = supersededReviewIds(queue);
+  const pending = items.filter(([id, item]) =>
+    (item.status || 'pending') === 'pending' && (showSuperseded || !superseded.has(id)));
   const outside = items.filter(([, item]) => item.status === 'outside_itinerary');
   const unlinked = items.filter(([id, item]) =>
     item.status === 'approved' && !trip?.emailImports?.[id]);
@@ -311,6 +342,12 @@ export default function GmailSync({ currentEmail, trip }) {
             </p>
           : <p>No re-scan recorded in Firebase. Updating GitHub alone does not update Apps Script.</p>}
       </div>
+      {superseded.size > 0 && <label className="gmail-muted">
+        <input type="checkbox" checked={showSuperseded}
+          onChange={e => setShowSuperseded(e.target.checked)}/>
+        Show {superseded.size} older booking email(s) replaced by newer versions
+        of the same confirmation number. No emails were deleted.
+      </label>}
       <div className="gmail-filter">
         {[
           ['pending', 'Pending (' + pending.length + ')'],
