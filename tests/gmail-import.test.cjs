@@ -115,3 +115,39 @@ test('Booking.com receipt extracts location, confirmation and local cancellation
   assert.equal(record.cancellationDeadline, '2027-03-07T23:59');
   assert.match(record.bookingLink, /^https:\/\/www.booking.com\/booking.html/);
 });
+
+
+test('Forwarded EL AL plain-text booking extracts both legs without booking identifiers', () => {
+  const body = [
+    'Flight', 'Departure', 'Arrival', 'Last check-in',
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: IA',
+    'LY41', '18:15', '07Mar2027', '05:40', '08Mar2027',
+    'Class: Economy Classic', 'Operated by: EL AL',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: P',
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'LY42', '09:00', '24Mar2027', '05:15', '25Mar2027',
+    'Frequent flyer number: private'
+  ].join('\n');
+  const rec = extract_(email('Your EL AL Booking Confirmation', body));
+  assert.equal(rec.segments.length, 2);
+  assert.deepEqual(Array.from(rec.segments, x => [x.number, x.from, x.to, x.date, x.departure]),
+    [['LY41', 'TLV', 'EZE', '2027-03-07', '18:15'],
+     ['LY42', 'EZE', 'TLV', '2027-03-24', '09:00']]);
+  assert.equal(rec.segments[1].arrivalDate, '2027-03-25');
+});
+
+test('Booking.com cancellation cost table supplies local free-cancellation deadline', () => {
+  const body = [
+    'Ushuaia Argentina March 2027', 'Check-in', 'Tuesday, March 9, 2027 (2:00 PM)',
+    'Check-out', 'Thursday, March 11, 2027',
+    'Cancellation policy', 'You can cancel for free until 1 day before arrival.',
+    'Cancellation cost', '-', 'until March 7, 2027 11:59 PM:',
+    'US$0', '-', 'from March 8, 2027 12:00 AM:', 'US$156.40',
+    'Cancellation deadlines are in the property local time.'
+  ].join('\n');
+  const rec = extract_(email('Your booking is confirmed at Mirador del Kaiken', body));
+  assert.equal(rec.cancellationDeadline, '2027-03-07T23:59');
+  assert.equal(rec.checkIn, '2027-03-09');
+  assert.equal(rec.checkOut, '2027-03-11');
+});
