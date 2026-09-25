@@ -4,6 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
+const IMPORTER_VERSION = '2026-09-25-diagnostics-v2';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -444,7 +445,8 @@ function syncGmailToFirebase() {
   firebase_('put', 'gmailImport/meta', {
     lastSyncAt: new Date().toISOString(),
     newlyStaged: matched,
-    label: TRIP_CONFIG.label
+    label: TRIP_CONFIG.label,
+    importerVersion: IMPORTER_VERSION
   });
   Logger.log('Staged ' + matched + ' new emails for manual review.');
 }
@@ -488,7 +490,8 @@ function backfillGmailMetadata() {
   firebase_('patch', 'gmailImport/meta', {
     lastBackfillAt: new Date().toISOString(),
     backfillExamined: examined,
-    backfillEnriched: enriched
+    backfillEnriched: enriched,
+    importerVersion: IMPORTER_VERSION
   });
   Logger.log('Backfill complete: examined ' + examined + '; enriched ' + enriched +
     ' existing emails. All review statuses and manually entered fields were preserved.');
@@ -537,4 +540,70 @@ function sendCancellationReminders() {
       stay.cancellationDeadline + '\nReview your original confirmation in Gmail before cancelling.');
     firebase_('patch', 'gmailImport/cancellationRemindersSent', { [key]: new Date().toISOString() });
   }
+}
+
+/**
+ * Read-only diagnostic: NO raw mail content, passenger identifiers or booking
+ * codes are logged. This function DOES NOT modify Firebase.
+ *
+ * Run diagnoseGmailSync once from Apps Script and share ONLY these aggregate
+ * counters from Execution log (never Script Properties or credential JSON).
+ * It distinguishes the wrong script version, unrecognized Gmail messages,
+ * missing source metadata and failed/previously completed Firebase backfill.
+ */
+function diagnoseGmailSync() {
+  checkAccount_();
+  const label = GmailApp.getUserLabelByName(TRIP_CONFIG.label);
+  if (!label) throw new Error('Gmail label Argentina2027 was not found.');
+  const current = firebase_('get', TRIP_CONFIG.queuePath) || {};
+  const meta = firebase_('get', 'gmailImport/meta') || {};
+  const counters = {
+    importerVersion: IMPORTER_VERSION,
+    lastSyncAt: meta.lastSyncAt || '(never)',
+    lastBackfillAt: meta.lastBackfillAt || '(never)',
+    previousBackfillExamined: meta.backfillExamined || 0,
+    previousBackfillEnriched: meta.backfillEnriched || 0,
+    firebaseQueueSize: Object.keys(current).length,
+    gmailLabelThreads: label.getThreads(0, 1000).length,
+    matchedMessages: 0,
+    sourceRecognized: 0,
+    extractionFailures: 0,
+    firebaseIdsMatched: 0,
+    rowsWithMissingFields: 0,
+    fieldsReadyToFill: {},
+    byType: {},
+    sampleCategories: []
+  };
+  const allThreads = label.getThreads(0, 1000);
+  for (const thread of allThreads) {
+    for (const msg of thread.getMessages()) {
+      const id = 'm_' + msg.getId();
+      const present = current[id];
+      if (present) counters.firebaseIdsMatched++;
+      let parsed;
+      try { parsed = extract_(msg); } catch {
+        counters.extractionFailures++;
+        continue;
+      }
+      if (!parsed) continue;
+      counters.matchedMessages++;
+      counters.byType[parsed.category] = (counters.byType[parsed.category] || 0) + 1;
+      const populated = Object.keys(parsed).filter(key =>
+        ['number','date','from','to','departure','arrival','segments','checkIn','checkOut',
+          'address','phone','bookingLink','cancellationDeadline'].includes(key) &&
+        parsed[key] != null && parsed[key] !== '' &&
+        (!Array.isArray(parsed[key]) || parsed[key].length > 0));
+      if (populated.length) counters.sourceRecognized++;
+      if (present) {
+        const missing = missingFields_(present, parsed);
+        const keys = Object.keys(missing);
+        if (keys.length) counters.rowsWithMissingFields++;
+        for (const field of keys) {
+          counters.fieldsReadyToFill[field] = (counters.fieldsReadyToFill[field] || 0) + 1;
+        }
+      }
+    }
+  }
+  // Deliberately no message IDs, subjects, passenger data or booking credentials.
+  Logger.log('Argentina Gmail diagnostics: ' + JSON.stringify(counters));
 }
