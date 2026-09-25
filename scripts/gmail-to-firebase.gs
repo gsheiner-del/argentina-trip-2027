@@ -557,6 +557,15 @@ function diagnoseGmailSync() {
   if (!label) throw new Error('Gmail label Argentina2027 was not found.');
   const current = firebase_('get', TRIP_CONFIG.queuePath) || {};
   const meta = firebase_('get', 'gmailImport/meta') || {};
+  // Apps Script getThreads(start, max) accepts at most 500 per call.
+  // Use paginated batches to avoid quota/argument errors on diagnosis.
+  const allThreads = [];
+  const pageSize = 100;
+  for (let offset = 0; offset < 1000; offset += pageSize) {
+    const page = label.getThreads(offset, pageSize);
+    allThreads.push(...page);
+    if (page.length < pageSize) break;
+  }
   const counters = {
     importerVersion: IMPORTER_VERSION,
     lastSyncAt: meta.lastSyncAt || '(never)',
@@ -564,7 +573,7 @@ function diagnoseGmailSync() {
     previousBackfillExamined: meta.backfillExamined || 0,
     previousBackfillEnriched: meta.backfillEnriched || 0,
     firebaseQueueSize: Object.keys(current).length,
-    gmailLabelThreads: label.getThreads(0, 1000).length,
+    gmailLabelThreads: allThreads.length,
     matchedMessages: 0,
     sourceRecognized: 0,
     extractionFailures: 0,
@@ -574,7 +583,6 @@ function diagnoseGmailSync() {
     byType: {},
     sampleCategories: []
   };
-  const allThreads = label.getThreads(0, 1000);
   for (const thread of allThreads) {
     for (const msg of thread.getMessages()) {
       const id = 'm_' + msg.getId();
