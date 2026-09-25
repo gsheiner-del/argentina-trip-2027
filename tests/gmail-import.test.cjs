@@ -285,3 +285,27 @@ test('EL AL booking key is recovered from HTML when forwarded plain text omits t
   assert.equal(linked.segments.length, 2);
   assert.ok(!JSON.stringify(linked).includes('ABC123'));
 });
+
+
+test('EL AL forward reconstructs flight legs from HTML block text when Apps Script plain body omits route', () => {
+  const legLines = [
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: IA',
+    'LY41', '18:15', '07Mar2027', '05:40', '08Mar2027',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: P',
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'LY42', '09:00', '24Mar2027', '05:15', '25Mar2027'
+  ];
+  const html = '<html><body>' +
+    legLines.map(line => '<div>' + line + '</div>').join('') +
+    '</body></html>';
+  const msg = email('SMITH/MARINA: Your EL AL Booking Confirmation',
+    'EL AL ticket confirmation for Buenos Aires, March 2027. Booking code ABC123.',
+    'html-only-itinerary', html);
+  const parsed = extract_(msg);
+  assert.equal(parsed.segments.length, 2);
+  assert.deepEqual(Array.from(parsed.segments, leg => [leg.number, leg.date, leg.from, leg.to]),
+    [['LY41','2027-03-07','TLV','EZE'],['LY42','2027-03-24','EZE','TLV']]);
+  const donor = buildFlightDonors_([msg]);
+  assert.equal(Object.keys(donor.donorMap).length, 1);
+});
