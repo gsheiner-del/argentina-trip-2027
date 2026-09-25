@@ -6,13 +6,18 @@ import '../styles/GmailSync.css';
 
 const QUEUE_PATH = 'gmailImport/reviewQueue';
 const options = [['hotel', 'Stays'], ['flight', 'Flights'], ['activity', 'Activities & Tours']];
-const initDraft = item => ({
+const initDraft = item => {
+  // Use the first verified flight leg if an older queue record contains
+  // segments but its legacy single-flight fields are missing.
+  const firstLeg = Array.isArray(item.segments) ? item.segments[0] || {} : {};
+  return {
   title: item.title || '', place: item.place || '',
   checkIn: item.checkIn || '', checkOut: item.checkOut || '',
-  date: item.date || item.checkIn || '',
-  number: item.number || '', airline: item.airline || '',
-  from: item.from || '', to: item.to || '',
-  departure: item.departure || '', arrival: item.arrival || '',
+  date: item.date || firstLeg.date || item.checkIn || '',
+  number: item.number || firstLeg.number || '', airline: item.airline || '',
+  from: item.from || firstLeg.from || '', to: item.to || firstLeg.to || '',
+  departure: item.departure || firstLeg.departure || '',
+  arrival: item.arrival || firstLeg.arrival || '',
   time: item.time || '', organizer: item.organizer || '',
   meetingPoint: item.meetingPoint || '',
   address: item.address || '', phone: item.phone || '', propertyEmail: item.propertyEmail || '',
@@ -20,7 +25,8 @@ const initDraft = item => ({
   cancellationDeadline: item.cancellationDeadline || '',
   price: item.price == null ? '' : String(item.price),
   currency: item.currency || 'USD', notes: item.notes || ''
-});
+  };
+};
 const initialCategory = item => item.category === 'flight_extra' ? 'flight'
   : item.category === 'hotel' ? 'hotel'
   : item.category === 'flight' ? 'flight' : 'activity';
