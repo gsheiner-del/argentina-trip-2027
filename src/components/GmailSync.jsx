@@ -288,6 +288,8 @@ export default function GmailSync({ currentEmail, trip }) {
           : pending.length + ' pending'}</span>
       </div>
       <div className="gmail-security-note">
+        <p><strong>Review interface: flight-details-v2</strong> · if this label is missing on
+          your Preview, Vercel is displaying an older build.</p>
         Gmail label <strong>Argentina2027</strong> · daily Apps Script import.
         {syncMeta?.lastSyncAt
           ? <p>Last sync {new Date(syncMeta.lastSyncAt).toLocaleString()} ·
