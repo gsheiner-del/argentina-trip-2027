@@ -14,10 +14,10 @@ const sandbox = {
   }
 };
 vm.createContext(sandbox);
-vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_ };', sandbox, {
+vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_ };', sandbox, {
   filename: 'gmail-to-firebase.gs'
 });
-const { extract_, onlyTripMessage_ } = sandbox.testApi;
+const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_ } = sandbox.testApi;
 
 function email(subject, body, id = 'testid', html = '') {
   return {
@@ -187,4 +187,56 @@ test('A relative cancellation policy without an explicit date is not guessed', (
     'You can cancel for free until 1 day before arrival.';
   const result = extract_(email('Your booking is confirmed at Mirador del Kaiken', body));
   assert.equal(result.cancellationDeadline, '');
+});
+
+
+test('EL AL ancillary receipt inherits verified itinerary only from same booking AND passenger', () => {
+  const itinerary = email(
+    'Fwd: SMITH/MARINA: Your EL AL Booking Confirmation',
+    ['Ticket receipt', 'Booking code: ABC123',
+     'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+     'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: IA',
+     'LY41', '18:15', '07Mar2027', '05:40', '08Mar2027',
+     'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: P',
+     'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+     'LY42', '09:00', '24Mar2027', '05:15', '25Mar2027'].join('\n'),
+    'itinerary-1'
+  );
+  const seat = email('SMITH/MARINA: Your EL AL Booking Confirmation',
+    'Electronic Miscellaneous Document. EZE Argentina, March 2027.\nBooking code: ABC123',
+    'ancillary-1');
+  const otherPerson = email('SMITH/ORI: Your EL AL Booking Confirmation',
+    'Electronic Miscellaneous Document. EZE Argentina, March 2027.\nBooking code: ABC123',
+    'ancillary-2');
+  const wrongBooking = email('SMITH/MARINA: Your EL AL Booking Confirmation',
+    'Electronic Miscellaneous Document. EZE Argentina, March 2027.\nBooking code: XYZ123',
+    'ancillary-3');
+  const donors = buildFlightDonors_([itinerary, seat, otherPerson, wrongBooking]);
+  const filled = linkedFlightDetails_(seat, extract_(seat), donors);
+  assert.equal(filled.segments.length, 2);
+  assert.equal(filled.number, 'LY41');
+  assert.equal(filled.from, 'TLV');
+  assert.equal(filled.to, 'EZE');
+  assert.equal(filled.arrivalDate, '2027-03-08');
+  assert.equal(filled.flightDetailsSource, 'Matching EL AL itinerary email');
+  const missing = missingFields_({ number: '', segments: [], departure: '' }, filled);
+  assert.equal(missing.number, 'LY41');
+  assert.equal(missing.segments.length, 2);
+  assert.equal(missing.departure, '18:15');
+  assert.equal(linkedFlightDetails_(otherPerson, extract_(otherPerson), donors).segments.length, 0);
+  assert.equal(linkedFlightDetails_(wrongBooking, extract_(wrongBooking), donors).segments.length, 0);
+  assert.ok(!JSON.stringify(filled).includes('ABC123'));
+});
+
+test('Conflicting itineraries with the same booking and passenger never enrich an EMD', () => {
+  const leg = (number, id) => email('Fwd: SMITH/MARINA: Your EL AL Booking Confirmation',
+    ['Buenos Aires Argentina', 'Booking code: ABC123',
+     'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+     'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: IA',
+     number, '18:15', '07Mar2027', '05:40', '08Mar2027'].join('\n'), id);
+  const ancillary = email('SMITH/MARINA: Your EL AL Booking Confirmation',
+    'Electronic Miscellaneous Document. EZE Argentina March 2027. Booking code: ABC123',
+    'ancillary');
+  const donors = buildFlightDonors_([leg('LY41', 'a'), leg('LY43', 'b')]);
+  assert.equal(linkedFlightDetails_(ancillary, extract_(ancillary), donors).segments.length, 0);
 });
