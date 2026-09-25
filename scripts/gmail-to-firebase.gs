@@ -186,8 +186,8 @@ function flightFields_(subject, body, html) {
     // plain text, then try the HTML-rendered text independently; never mix
     // their airport/date sequences or infer missing flight fields.
     const htmlText = String(html || '')
-      .replace(/<br\s*\/?>/gi, '\\n')
-      .replace(/<\/(?:td|th|tr|p|div|li)>/gi, '\\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:td|th|tr|p|div|li)>/gi, '\n')
       .replace(/<[^>]*>/g, ' ')
       .replace(/&nbsp;|&#160;/gi, ' ')
       .replace(/&amp;/gi, '&')
