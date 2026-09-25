@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-elal-link-v5';
+const IMPORTER_VERSION = '2026-09-25-elal-link-v6';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -360,9 +360,10 @@ function flightPairKey_(message) {
   return (passenger[1] + '/' + passenger[2] + ':' + code[1]).toUpperCase();
 }
 function flightSignature_(segments) {
+  // Flights and dates must match. Ignore optional times here because one copy
+  // of an EL AL email may omit them, whereas a forwarded ticket has both.
   return segments.map(leg =>
-    [leg.number, leg.from, leg.to, leg.date, leg.departure,
-      leg.arrivalDate, leg.arrival].join('|')).join(';');
+    [leg.number, leg.from, leg.to, leg.date].join('|')).join(';');
 }
 function buildFlightDonors_(messages) {
   const donorMap = {};
@@ -375,11 +376,19 @@ function buildFlightDonors_(messages) {
         parsed.segments.length < 1 ||
         parsed.segments.some(leg => !leg.number || !leg.date || !leg.from || !leg.to)) continue;
     const signature = flightSignature_(parsed.segments);
-    if (donorMap[key] && donorMap[key].signature !== signature) {
+    const incumbent = donorMap[key];
+    if (incumbent && incumbent.signature !== signature) {
       ambiguous.add(key);
       delete donorMap[key];
-    } else if (!ambiguous.has(key)) {
-      donorMap[key] = { signature, data: parsed };
+      continue;
+    }
+    if (ambiguous.has(key)) continue;
+    // Prefer the most complete confirmed ticket copy; a missing optional field
+    // in one email must not invalidate the matching full itinerary.
+    const completeness = parsed.segments.reduce((n, leg) => n +
+      ['departure', 'arrivalDate', 'arrival'].filter(f => leg[f]).length, 0);
+    if (!incumbent || completeness > incumbent.completeness) {
+      donorMap[key] = { signature, completeness, data: parsed };
     }
   }
   return { donorMap, ambiguous };
@@ -640,6 +649,9 @@ function diagnoseGmailSync() {
     sourceRecognized: 0,
     extractionFailures: 0,
     linkedFlightEmails: 0,
+    completeItineraryDonors: 0,
+    ambiguousItineraries: 0,
+    unmatchedAncillaryEmails: 0,
     firebaseIdsMatched: 0,
     rowsWithMissingFields: 0,
     fieldsReadyToFill: {},
@@ -653,6 +665,8 @@ function diagnoseGmailSync() {
     }
   };
   const donors = buildFlightDonors_(allThreads.flatMap(thread => thread.getMessages()));
+  counters.completeItineraryDonors = Object.keys(donors.donorMap).length;
+  counters.ambiguousItineraries = donors.ambiguous.size;
   for (const thread of allThreads) {
     for (const msg of thread.getMessages()) {
       const id = 'm_' + msg.getId();
@@ -666,6 +680,10 @@ function diagnoseGmailSync() {
       if (!parsed) continue;
       counters.matchedMessages++;
       if (parsed.flightDetailsSource) counters.linkedFlightEmails++;
+      if (parsed.category === 'flight_extra' &&
+          !(Array.isArray(parsed.segments) && parsed.segments.length)) {
+        counters.unmatchedAncillaryEmails++;
+      }
       counters.byType[parsed.category] = (counters.byType[parsed.category] || 0) + 1;
       const coverage = counters.fieldCoverage[parsed.category] || counters.fieldCoverage.other;
       coverage.messages++;
