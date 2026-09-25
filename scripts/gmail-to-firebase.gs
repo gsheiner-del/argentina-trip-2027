@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-elal-source-v7';
+const IMPORTER_VERSION = '2026-09-25-elal-html-fallback-v8';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -180,7 +180,23 @@ function flightFields_(subject, body, html) {
   // arrival time/date. Detect both legs rather than mistaking the return
   // date for the outbound flight. Dates and times are never guessed.
   if (!segments.length) {
-    const lines = String(body || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    // Apps Script getPlainBody() and Gmail API's decoded text are NOT always
+    // equivalent for forwarded EL AL messages. Reconstruct a second text
+    // stream from actual HTML, preserving cell/line boundaries. First try
+    // plain text, then try the HTML-rendered text independently; never mix
+    // their airport/date sequences or infer missing flight fields.
+    const htmlText = String(html || '')
+      .replace(/<br\s*\/?>/gi, '\\n')
+      .replace(/<\/(?:td|th|tr|p|div|li)>/gi, '\\n')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;|&#160;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&#39;/gi, "'")
+      .replace(/&quot;/gi, '"');
+    const candidateTexts = [String(body || ''), htmlText];
+    for (const candidateText of candidateTexts) {
+    if (segments.length) break;
+    const lines = candidateText.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
     const isCompactDate = /^\d{1,2}[a-z]{3}20\d{2}$/i;
     const compactDate = value => parseDate_(String(value || '')
       .replace(/^(\d{1,2})([a-z]{3})(20\d{2})$/i, '$1 $2 $3'));
@@ -210,6 +226,7 @@ function flightFields_(subject, body, html) {
           arrivalDate: stamps[1].date, arrival: stamps[1].time
         });
       }
+    }
     }
   }
   const first = segments[0];
@@ -660,6 +677,7 @@ function diagnoseGmailSync() {
     completeItineraryDonors: 0,
     ambiguousItineraries: 0,
     unmatchedAncillaryEmails: 0,
+    flightBodySources: { plain: 0, html: 0, neither: 0 },
     firebaseIdsMatched: 0,
     rowsWithMissingFields: 0,
     fieldsReadyToFill: {},
@@ -689,6 +707,12 @@ function diagnoseGmailSync() {
     const linked = !!flightPairKey_(diagnosticMsg);
     if (linked) counters.subjectAndBookingMatched++;
     if (full) counters.itinerariesWithSegments++;
+    if (extracted?.category === 'flight') {
+      const p = flightFields_(diagnosticMsg.getSubject(), diagnosticMsg.getPlainBody(), '');
+      const h = flightFields_(diagnosticMsg.getSubject(), '', diagnosticMsg.getBody());
+      const source = p.segments?.length ? 'plain' : h.segments?.length ? 'html' : 'neither';
+      counters.flightBodySources[source]++;
+    }
     if (full && linked) counters.matchableItineraries++;
     if (full && !linked) counters.unmatchedDueToMissingCodeOrSubject++;
   }
