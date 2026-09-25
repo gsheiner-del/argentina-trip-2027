@@ -341,8 +341,11 @@ function missingFields_(existing, parsed) {
     'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline'];
   const updates = {};
   for (const key of allowed) {
-    if ((existing[key] == null || existing[key] === '') &&
-        parsed[key] !== undefined && parsed[key] !== null && parsed[key] !== '') {
+    const empty = existing[key] == null || existing[key] === '' ||
+      (Array.isArray(existing[key]) && existing[key].length === 0);
+    const incoming = parsed[key] !== undefined && parsed[key] !== null &&
+      parsed[key] !== '' && (!Array.isArray(parsed[key]) || parsed[key].length > 0);
+    if (empty && incoming) {
       updates[key] = parsed[key];
     }
   }
