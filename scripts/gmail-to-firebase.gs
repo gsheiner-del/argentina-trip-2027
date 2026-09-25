@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-cancellation-parser-v4';
+const IMPORTER_VERSION = '2026-09-25-elal-link-v5';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -343,9 +343,78 @@ function extract_(message) {
     status: 'pending'
   };
 }
+
+/** Join an EL AL ancillary/EMD email to a separately received itinerary.
+ * The full booking code and passenger name are used IN MEMORY ONLY, never
+ * written to Firebase or printed in Apps Script execution logs. An exact
+ * booking code AND the exact passenger from the subject must match.
+ * A common family booking code alone is NOT sufficient.
+ */
+function flightPairKey_(message) {
+  const subject = String(message.getSubject() || '');
+  if (!/el\s*al/i.test(subject)) return '';
+  const passenger = subject.match(/\b([A-Z][A-Z'-]{1,})\/([A-Z][A-Z'-]{1,})\s*:/i);
+  const body = String(message.getPlainBody() || '');
+  const code = body.match(/\bbooking\s+code\s*:?\s*([A-Z0-9]{5,12})\b/i);
+  if (!passenger || !code) return '';
+  return (passenger[1] + '/' + passenger[2] + ':' + code[1]).toUpperCase();
+}
+function flightSignature_(segments) {
+  return segments.map(leg =>
+    [leg.number, leg.from, leg.to, leg.date, leg.departure,
+      leg.arrivalDate, leg.arrival].join('|')).join(';');
+}
+function buildFlightDonors_(messages) {
+  const donorMap = {};
+  const ambiguous = new Set();
+  for (const message of messages) {
+    const key = flightPairKey_(message);
+    if (!key) continue;
+    const parsed = extract_(message);
+    if (!parsed || !Array.isArray(parsed.segments) ||
+        parsed.segments.length < 1 ||
+        parsed.segments.some(leg => !leg.number || !leg.date || !leg.from || !leg.to)) continue;
+    const signature = flightSignature_(parsed.segments);
+    if (donorMap[key] && donorMap[key].signature !== signature) {
+      ambiguous.add(key);
+      delete donorMap[key];
+    } else if (!ambiguous.has(key)) {
+      donorMap[key] = { signature, data: parsed };
+    }
+  }
+  return { donorMap, ambiguous };
+}
+function linkedFlightDetails_(message, parsed, donors) {
+  if (!parsed || !['flight', 'flight_extra'].includes(parsed.category)) return parsed;
+  if (Array.isArray(parsed.segments) && parsed.segments.length) return parsed;
+  const key = flightPairKey_(message);
+  const donor = key && !donors.ambiguous.has(key) ? donors.donorMap[key] : null;
+  if (!donor) return parsed;
+  const keys = ['number', 'date', 'from', 'to', 'departure', 'arrival',
+    'arrivalDate', 'segments', 'airline'];
+  const result = { ...parsed };
+  for (const field of keys) {
+    if (result[field] == null || result[field] === '' ||
+        (Array.isArray(result[field]) && !result[field].length)) {
+      result[field] = donor.data[field];
+    }
+  }
+  result.flightDetailsSource = 'Matching EL AL itinerary email';
+  return result;
+}
+function allLabelMessages_(label) {
+  const messages = [];
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const page = label.getThreads(offset, 100);
+    for (const thread of page) messages.push(...thread.getMessages());
+    if (page.length < 100) break;
+  }
+  return messages;
+}
+
 function missingFields_(existing, parsed) {
   const allowed = ['checkIn', 'checkOut', 'date', 'number', 'airline', 'from', 'to',
-    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline'];
+    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline', 'flightDetailsSource'];
   const updates = {};
   for (const key of allowed) {
     const empty = existing[key] == null || existing[key] === '' ||
@@ -427,25 +496,18 @@ function syncGmailToFirebase() {
   const routeCities = (trip.destinations || []).map(d => clean_(d.name || ''));
   const incoming = {};
   let matched = 0;
-  const pageSize = 100;
-  const maxThreads = 1000; // Increase only if your label is unusually large.
-  for (let offset = 0; offset < maxThreads; offset += pageSize) {
-    const threads = label.getThreads(offset, pageSize);
-    if (!threads.length) break;
-    for (const thread of threads) {
-      for (const message of thread.getMessages()) {
-        const id = 'm_' + message.getId();
-        if (existing[id] || incoming[id]) continue; // Never reset past approvals.
-        const parsed = extract_(message);
-        if (parsed) {
-          // Known locations removed from the itinerary are archived, not shown in review.
-          if (parsed.category === 'hotel' && parsed.place && routeCities.length && !routeCities.includes(clean_(parsed.place)))
-            parsed.status = 'outside_itinerary';
-          incoming[id] = parsed; matched++;
-        }
-      }
+  const messages = allLabelMessages_(label);
+  const donors = buildFlightDonors_(messages);
+  for (const message of messages) {
+    const id = 'm_' + message.getId();
+    if (existing[id] || incoming[id]) continue; // Never reset past approvals.
+    const parsed = linkedFlightDetails_(message, extract_(message), donors);
+    if (parsed) {
+      if (parsed.category === 'hotel' && parsed.place && routeCities.length &&
+          !routeCities.includes(clean_(parsed.place))) parsed.status = 'outside_itinerary';
+      incoming[id] = parsed;
+      matched++;
     }
-    if (threads.length < pageSize) break;
   }
   if (matched) firebase_('patch', TRIP_CONFIG.queuePath, incoming);
   firebase_('put', 'gmailImport/meta', {
@@ -471,26 +533,20 @@ function backfillGmailMetadata() {
   const existing = firebase_('get', TRIP_CONFIG.queuePath) || {};
   const changes = {};
   let examined = 0, enriched = 0;
-  const pageSize = 100;
-  for (let offset = 0; offset < 1000; offset += pageSize) {
-    const threads = label.getThreads(offset, pageSize);
-    if (!threads.length) break;
-    for (const thread of threads) {
-      for (const message of thread.getMessages()) {
-        const id = 'm_' + message.getId();
-        if (!existing[id]) continue;
-        examined++;
-        const parsed = extract_(message);
-        if (!parsed) continue;
-        const missing = missingFields_(existing[id], parsed);
-        for (const [key, value] of Object.entries(missing)) {
-          changes[id + '/' + key] = value;
-          existing[id][key] = value;
-        }
-        if (Object.keys(missing).length) enriched++;
-      }
+  const messages = allLabelMessages_(label);
+  const donors = buildFlightDonors_(messages);
+  for (const message of messages) {
+    const id = 'm_' + message.getId();
+    if (!existing[id]) continue;
+    examined++;
+    const parsed = linkedFlightDetails_(message, extract_(message), donors);
+    if (!parsed) continue;
+    const missing = missingFields_(existing[id], parsed);
+    for (const [key, value] of Object.entries(missing)) {
+      changes[id + '/' + key] = value;
+      existing[id][key] = value;
     }
-    if (threads.length < pageSize) break;
+    if (Object.keys(missing).length) enriched++;
   }
   if (Object.keys(changes).length) firebase_('patch', TRIP_CONFIG.queuePath, changes);
   firebase_('patch', 'gmailImport/meta', {
@@ -583,6 +639,7 @@ function diagnoseGmailSync() {
     matchedMessages: 0,
     sourceRecognized: 0,
     extractionFailures: 0,
+    linkedFlightEmails: 0,
     firebaseIdsMatched: 0,
     rowsWithMissingFields: 0,
     fieldsReadyToFill: {},
@@ -595,18 +652,20 @@ function diagnoseGmailSync() {
       other: { messages: 0, extracted: {}, stored: {}, bothEmpty: {} }
     }
   };
+  const donors = buildFlightDonors_(allThreads.flatMap(thread => thread.getMessages()));
   for (const thread of allThreads) {
     for (const msg of thread.getMessages()) {
       const id = 'm_' + msg.getId();
       const present = current[id];
       if (present) counters.firebaseIdsMatched++;
       let parsed;
-      try { parsed = extract_(msg); } catch {
+      try { parsed = linkedFlightDetails_(msg, extract_(msg), donors); } catch {
         counters.extractionFailures++;
         continue;
       }
       if (!parsed) continue;
       counters.matchedMessages++;
+      if (parsed.flightDetailsSource) counters.linkedFlightEmails++;
       counters.byType[parsed.category] = (counters.byType[parsed.category] || 0) + 1;
       const coverage = counters.fieldCoverage[parsed.category] || counters.fieldCoverage.other;
       coverage.messages++;
