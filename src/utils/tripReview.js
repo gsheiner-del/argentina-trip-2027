@@ -123,7 +123,7 @@ export function prepareApproval(trip, queue, emailId, options) {
   if (trip?.emailImports?.[emailId]) throw new Error('This email was already linked.');
   if (item.cancellationFlag)
     throw new Error('Cancellation emails require manual handling; they cannot confirm a booking.');
-  const { destinationId, category, existingPath = '', replaceConflicts = false } = options;
+  const { destinationId, category, existingPath = '', replaceConflicts = false, replaceDates = false } = options;
   if (!CATEGORIES.includes(category)) throw new Error('Select Stays, Flights or Activities.');
   const idx = destinationIndex(trip?.destinations, destinationId);
   if (idx < 0) throw new Error('Choose a destination from this trip.');
@@ -214,8 +214,11 @@ export function prepareApproval(trip, queue, emailId, options) {
           value === '' || value == null) continue;
       const old = previous[key];
       if (old !== undefined && old !== null && old !== '' &&
-          String(old).toLowerCase() !== String(value).toLowerCase() &&
-          !replaceConflicts) continue;
+          String(old).toLowerCase() !== String(value).toLowerCase()) {
+        if (category === 'hotel' && ['checkIn', 'checkOut'].includes(key)) {
+          if (!replaceDates) continue;
+        } else if (!replaceConflicts) continue;
+      }
       if (old !== value) updates[path + '/' + key] = value;
     }
     if (!previous.reviewedAt) updates[path + '/reviewedAt'] = now;
