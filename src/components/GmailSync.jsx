@@ -287,6 +287,13 @@ export default function GmailSync({ currentEmail, trip }) {
           ? <p>Last sync {new Date(syncMeta.lastSyncAt).toLocaleString()} ·
             {syncMeta.newlyStaged || 0} newly staged on last run.</p>
           : <p>No completed import reported yet. Verify Apps Script.</p>}
+        {syncMeta?.lastBackfillAt
+          ? <p>Last re-scan {new Date(syncMeta.lastBackfillAt).toLocaleString()} ·
+              {syncMeta.backfillExamined ?? 0} messages examined ·
+              {syncMeta.backfillEnriched ?? 0} records enriched.
+              {syncMeta.importerVersion ? ' Importer: ' + syncMeta.importerVersion : ''}
+            </p>
+          : <p>No re-scan recorded in Firebase. Updating GitHub alone does not update Apps Script.</p>}
       </div>
       <div className="gmail-filter">
         {[
