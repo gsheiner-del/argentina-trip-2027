@@ -30,7 +30,7 @@ test('destination cost totals use explicit USD-base rates before summing', () =>
     activities: [{ item: 'Tickets', estimatedCost: '$25' }],
     other: [{ item: 'Misc', estimatedCost: 'TBD' }]
   }}];
-  const x = aggregateCosts(data, { ARS: 1400, ILS: 3.6 });
+  const x = aggregateCosts(data, { rates: { ARS: 1400, ILS: 3.6 } });
   assert.equal(x.totals.groundTransport, 2);
   assert.equal(x.totals.meals, 100);
   assert.equal(x.totals.activities, 25);
@@ -47,4 +47,29 @@ test('missing exchange rates exclude non-USD items instead of miscounting', () =
   assert.equal(x.grandTotal, 12);
   assert.equal(x.issues[0].state, 'rate_missing');
   assert.equal(x.issues[0].currency, 'ARS');
+});
+
+
+test('saved currency snapshots retain historical USD cost when daily rates change', () => {
+  const data = [{ name: 'Bariloche', costs: { meals: [{
+    item: 'Dinner', estimatedCost: 'ARS 5000', amount: 5000,
+    currency: 'ARS', usdValue: 5, fxSnapshot: {
+      base: 'USD', rate: 1000, source: 'daily', rateTimestamp: '2026-09-21T00:00:00Z'
+    }
+  }] } }];
+  const result = aggregateCosts(data, { rates: { ARS: 1500, ILS: 3.6 } });
+  assert.equal(result.grandTotal, 5);
+  assert.equal(result.provisionalCount, 0);
+});
+
+test('budget breakdown estimates, ranges and shares convert with selected currency', async () => {
+  const { convertPlanningEstimate } = await import('../src/utils/budget.js');
+  const quote = { rates: { USD: 1, ARS: 1000, ILS: 4 } };
+  assert.equal(convertPlanningEstimate('USD 2,408', 'ILS', quote), 'ILS 9,632');
+  assert.equal(convertPlanningEstimate('USD 12,000 - 15,000', 'ARS', quote),
+    'ARS 12,000,000 – ARS 15,000,000');
+  assert.equal(convertPlanningEstimate('Estimated USD 4,000-5,000', 'ILS', quote),
+    'Estimated ILS 16,000 – ILS 20,000');
+  assert.equal(convertPlanningEstimate('TBD', 'ILS', quote), 'TBD');
+  assert.match(convertPlanningEstimate('USD 300', 'ILS', null), /waiting for current/);
 });

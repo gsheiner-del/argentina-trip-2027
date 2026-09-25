@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { database, ref, onValue, update, set, auth, signOut } from './firebase';
 import './App.css';
-import RouteMap from './components/RouteMap';
 import ArgentinaMap from './components/ArgentinaMap';
 import GmailSync from './components/GmailSync';
 import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
-import ApprovedBookings from './components/ApprovedBookings';
 import LoginPage from './components/LoginPage';
+import { groupHotelOptions } from './utils/hotels';
+import { existingRecords, screenshotImportPlan, cityMatches } from './utils/tripReview.js';
 
 const USER_WHITELIST = {
   'gsheiner@gmail.com': { role: 'edit', display: 'Gennady' },
@@ -92,6 +92,7 @@ export default function App() {
       setDataError('');
     } catch {
       setDataError('Could not save destination costs. Check Firebase permissions.');
+      throw new Error('Could not save destination costs.');
     }
   };
 
@@ -107,6 +108,85 @@ export default function App() {
     if (!relativePath) return;
     set(ref(database, `trip/destinations/${index}/${relativePath}`), link)
       .catch(() => setDataError('Could not save this booking link.'));
+  };
+
+
+  const editorOnly = () => {
+    if (userRole !== 'edit') throw new Error('Only Gennady and Marina can change stays.');
+  };
+
+  const selectPreferred = async (groupKey, hotel) => {
+    editorOnly();
+    const groups = tripData.destinations.flatMap(dest =>
+      groupHotelOptions(existingRecords(tripData, 'hotel', dest.id)));
+    const group = groups.find(g => g.key === groupKey &&
+      (!hotel || g.hotels.some(row => row.sourcePath === hotel.sourcePath)));
+    if (!group) throw new Error('This stay changed. Refresh your browser.');
+    if (hotel && !/confirm|booked/i.test(String(hotel.status || '')) ||
+        hotel && /cancel/i.test(String(hotel.status || ''))) {
+      throw new Error('Only a confirmed, non-cancelled booking can be Preferred.');
+    }
+    const updates = {};
+    for (const alias of group.aliases) updates['trip/hotelSelections/' + alias] = null;
+    updates['trip/hotelSelections/' + group.key] = hotel?.id || 'none';
+    await update(ref(database), updates);
+  };
+
+  const importScreenshot = async (rows) => {
+    editorOnly();
+    if (!Array.isArray(rows) || rows.length > 100)
+      throw new Error('Import an array of up to 100 bookings.');
+    const updates = {};
+    let added = 0, enriched = 0, duplicates = 0, unmatched = 0;
+    const normalized = value => String(value || '').normalize('NFD')
+      .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const pendingByDest = {};
+    for (const row of rows) {
+      if (!/confirm|booked/i.test(String(row.status || '')) ||
+          /cancel/i.test(String(row.status || ''))) continue;
+      const match = tripData.destinations.find(dest => cityMatches(row.city, dest.name));
+      if (!match) { unmatched++; continue; }
+      // Validate dates and duplicate fingerprints before preparing any database writes.
+      const plan = screenshotImportPlan(tripData, match.id, [row]);
+      const index = plan.destinationIndex;
+      const existing = existingRecords(tripData, 'hotel', match.id).find(h =>
+        normalized(h.name) === normalized(row.name) &&
+        (!h.checkIn || h.checkIn === row.checkIn) &&
+        (!h.checkOut || h.checkOut === row.checkOut));
+      if (existing) {
+        const additions = {
+          checkIn: row.checkIn, checkOut: row.checkOut,
+          ...(Number.isFinite(Number(row.price)) && row.price !== '' && row.price != null
+            ? { price: Number(row.price), currency: row.currency || 'USD' } : {}),
+          ...(row.cancellationPolicy ? { cancellationPolicy: String(row.cancellationPolicy).slice(0,200) } : {})
+        };
+        let changed = false;
+        for (const [field,value] of Object.entries(additions)) {
+          if (value !== '' && (existing[field] === '' || existing[field] == null)) {
+            updates[existing.sourcePath + '/' + field] = value; changed = true;
+          }
+        }
+        if (changed) enriched++; else duplicates++;
+        continue;
+      }
+      if (!plan.accept.length) { duplicates++; continue; }
+      const next = (tripData.destinations[index].hotels?.length || 0) +
+        (pendingByDest[index] || 0);
+      pendingByDest[index] = (pendingByDest[index] || 0) + 1;
+      updates['trip/destinations/' + index + '/hotels/' + next] = {
+        id: 'screenshot_' + index + '_' + next,
+        name: String(row.name).slice(0,160), city: match.name,
+        checkIn: row.checkIn, checkOut: row.checkOut,
+        status: 'confirmed', source: 'Booking screenshot',
+        ...(row.price != null && row.price !== '' && Number.isFinite(Number(row.price))
+          ? { price: Number(row.price), currency: row.currency || 'USD' } : {}),
+        ...(row.cancellationPolicy
+          ? { cancellationPolicy: String(row.cancellationPolicy).slice(0,200) } : {})
+      };
+      added++;
+    }
+    if (Object.keys(updates).length) await update(ref(database), updates);
+    return { added, enriched, duplicates, unmatched };
   };
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -145,8 +225,7 @@ export default function App() {
       </header>
       <nav className="nav-tabs" aria-label="Trip sections">
         {[
-          ['home', 'Home'], ['route', 'Route'], ['destinations', 'Destinations'],
-          ['map', 'Interactive map'], ['budget', 'Budget'], ['bookings', 'Reviewed bookings'],
+          ['home', 'Home'], ['destinations', 'Destinations'], ['budget', 'Budget'],
           ...(userRole === 'edit' ? [['gmail', 'Gmail review']] : [])
         ].map(([id, label]) => (
           <button key={id} className={currentTab === id ? 'active' : ''}
@@ -157,47 +236,34 @@ export default function App() {
         {dataError && <p className="app-error" role="alert">{dataError}</p>}
         {currentTab === 'home' && (
           <div className="home-screen">
+            <ArgentinaMap destinations={destinations} onOpenDestination={(id) => {
+              setSelectedDestination(id);
+              setCurrentTab('destinations');
+            }} />
             <section className="trip-summary">
               <h2>Trip overview</h2>
               <div className="summary-item"><span>Travelers</span><span>5 people</span></div>
               <div className="summary-item"><span>Route stops</span><span>{destinations.length}</span></div>
-              <div className="summary-item"><span>Reviewed bookings</span><span>{Object.keys(tripData.bookingSummaries || {}).length}</span></div>
+              <div className="summary-item"><span>Active hotel selections</span>
+                <span>{Object.values(tripData.hotelSelections || {}).filter(id => id && id !== 'none').length}</span></div>
+              <div className="summary-item"><span>Gmail-linked records</span>
+                <span>{Object.keys(tripData.emailImports || {}).length}</span></div>
               <div className="summary-item"><span>Status</span><span>Planning in progress</span></div>
-            </section>
-            <section className="quick-route">
-              <h2>Trip route</h2>
-              <div className="route-steps">
-                {destinations.map((dest) => (
-                  <button key={dest.id} className="route-step" onClick={() => {
-                    setSelectedDestination(dest.id);
-                    setCurrentTab('destinations');
-                  }}>
-                    <span className="step-icon">{dest.emoji}</span>
-                    <span className="step-info"><span className="step-name">{dest.name}</span>
-                    <span className="step-dates">{dest.dates}</span></span>
-                  </button>
-                ))}
-              </div>
             </section>
           </div>
         )}
-        {currentTab === 'route' && <RouteMap destinations={destinations} />}
-        {currentTab === 'map' && <ArgentinaMap destinations={destinations} onOpenDestination={(id) => {
-          setSelectedDestination(id);
-          setCurrentTab('destinations');
-        }} />}
         {currentTab === 'destinations' && (
-          <DestinationDetail
+          <DestinationDetail trip={tripData}
             destinations={destinations} selectedId={selectedDestination}
-            onSelectHotel={(id, hotelId) => updateDestination(id, { selectedHotel: hotelId })}
             onUpdateBooking={handleUpdateBooking}
             onUpdateCosts={handleUpdateCosts} userRole={userRole}
+            onSelectPreferred={selectPreferred}
+            onImportScreenshot={importScreenshot}
           />
         )}
         {currentTab === 'budget' && <Budget tripData={tripData} />}
-        {currentTab === 'bookings' && <ApprovedBookings bookingSummaries={tripData.bookingSummaries} />}
         {currentTab === 'gmail' && userRole === 'edit' &&
-          <GmailSync currentEmail={userEmail} />}
+          <GmailSync currentEmail={userEmail} trip={tripData} />}
       </main>
       <footer className="footer">Argentina Trip Planner • Live trip data</footer>
     </div>

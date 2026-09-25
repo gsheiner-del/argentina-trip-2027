@@ -1,174 +1,337 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { database, ref, onValue, update } from '../firebase';
+import { existingRecords, likelyMatches, prepareApproval, prepareMultiFlightApproval } from '../utils/tripReview.js';
+import { cityMatches } from '../utils/tripReview.js';
 import '../styles/GmailSync.css';
 
 const QUEUE_PATH = 'gmailImport/reviewQueue';
-const EMPTY_DRAFT = { title: '', place: '', checkIn: '', checkOut: '', notes: '' };
-
-function safeSummary(item, draft) {
-  // ONLY this explicit allowlist is copied to the family-visible trip node.
-  // Never publish email bodies, PINs, ticket numbers, booking links or confirmation codes.
+const options = [['hotel', 'Stays'], ['flight', 'Flights'], ['activity', 'Activities & Tours']];
+const initDraft = item => {
+  // Use the first verified flight leg if an older queue record contains
+  // segments but its legacy single-flight fields are missing.
+  const firstLeg = Array.isArray(item.segments) ? item.segments[0] || {} : {};
   return {
-    title: String(draft.title || '').trim().slice(0, 140),
-    place: String(draft.place || '').trim().slice(0, 100),
-    checkIn: String(draft.checkIn || '').trim().slice(0, 10),
-    checkOut: String(draft.checkOut || '').trim().slice(0, 10),
-    notes: String(draft.notes || '').trim().slice(0, 350),
-    category: ['hotel', 'flight', 'flight_extra', 'transport', 'other'].includes(item.category)
-      ? item.category : 'other',
-    source: 'gmail',
-    status: 'reviewed',
-    reviewedAt: Date.now()
+  title: item.title || '', place: item.place || '',
+  checkIn: item.checkIn || '', checkOut: item.checkOut || '',
+  date: item.date || firstLeg.date || item.checkIn || '',
+  number: item.number || firstLeg.number || '', airline: item.airline || '',
+  from: item.from || firstLeg.from || '', to: item.to || firstLeg.to || '',
+  departure: item.departure || firstLeg.departure || '',
+  arrival: item.arrival || firstLeg.arrival || '',
+  time: item.time || '', organizer: item.organizer || '',
+  meetingPoint: item.meetingPoint || '',
+  address: item.address || '', phone: item.phone || '', propertyEmail: item.propertyEmail || '',
+  confirmationNumber: item.confirmationNumber || '', bookingLink: item.bookingLink || '',
+  cancellationDeadline: item.cancellationDeadline || '',
+  price: item.price == null ? '' : String(item.price),
+  currency: item.currency || 'USD', notes: item.notes || ''
   };
-}
+};
+const initialCategory = item => item.category === 'flight_extra' ? 'flight'
+  : item.category === 'hotel' ? 'hotel'
+  : item.category === 'flight' ? 'flight' : 'activity';
 
-function ReviewCard({ item, itemId, duplicates, onAction, saving }) {
-  const [draft, setDraft] = useState(() => ({
-    ...EMPTY_DRAFT, title: item.title || '', place: item.place || '',
-    checkIn: item.checkIn || '', checkOut: item.checkOut || '', notes: item.notes || ''
-  }));
+function ReviewCard({ item, itemId, trip, saving, onAction }) {
+  const [category, setCategory] = useState(() => initialCategory(item));
+  const [draft, setDraft] = useState(() => initDraft(item));
+  const [destinationId, setDestinationId] = useState(() =>
+    (trip.destinations || []).find(dest => cityMatches(item.place, dest.name))?.id || '');
+  const [existingPath, setExistingPath] = useState('');
+  const [replaceConflicts, setReplaceConflicts] = useState(false);
+  const [error, setError] = useState('');
   useEffect(() => {
-    setDraft({
-      title: item.title || '', place: item.place || '',
-      checkIn: item.checkIn || '', checkOut: item.checkOut || '', notes: item.notes || ''
-    });
-  }, [item.title, item.place, item.checkIn, item.checkOut, item.notes]);
-  const setField = (field, value) => setDraft((prev) => ({ ...prev, [field]: value }));
-  const canApprove = draft.title.trim() && draft.place.trim() && !item.cancellationFlag;
+    setDraft(prev => Object.fromEntries(Object.entries(initDraft(item)).map(([key, val]) =>
+      [key, prev[key] || val])));
+  }, [item.checkIn, item.checkOut, item.date, item.from, item.to, item.number,
+    item.address, item.phone, item.propertyEmail, item.confirmationNumber, item.bookingLink, item.cancellationDeadline, item.departure, item.arrival, item.arrivalDate, item.segments]);
+
+  const setField = (field, value) => setDraft(prev => ({ ...prev, [field]: value }));
+  const matches = useMemo(() =>
+    destinationId ? likelyMatches(trip, category, destinationId, draft) : [],
+    [trip, category, destinationId, draft]);
+  const matchList = useMemo(() =>
+    destinationId ? existingRecords(trip, category, destinationId) : [],
+    [trip, category, destinationId]);
+  const selected = matchList.find(m => m.sourcePath === existingPath);
+  const conflicts = matches.find(m => m.sourcePath === existingPath)?.conflicts || [];
+  const multiFlight = category === 'flight' && (item.segments || []).length > 1;
+  const canApprove = multiFlight ? !item.cancellationFlag && Boolean(destinationId) :
+    !item.cancellationFlag && draft.title.trim() && destinationId &&
+    (existingPath || matches.length === 0);
+
+  const approve = async () => {
+    setError('');
+    try {
+      await onAction(itemId, item, 'approve', {
+        category, destinationId, existingPath,
+        replaceConflicts, draft, multiFlight
+      });
+    } catch (e) { setError(e.message || 'Could not approve this record.'); }
+  };
   return (
     <article className="gmail-review-card">
       <header className="gmail-review-head">
-        <span className="gmail-review-category">{item.category || 'other'}</span>
-        <span className={item.cancellationFlag ? 'gmail-caution' : 'gmail-muted'}>
-          {item.cancellationFlag ? 'Possible cancellation — verify manually' : 'Awaiting review'}
-        </span>
+        <span className="gmail-review-category">{item.category || 'other'} email</span>
+        {item.status === 'approved'
+          ? <span className="gmail-muted">Older approval — link to a destination</span>
+          : <span className="gmail-muted">Awaiting your review — airline status is separate</span>}
       </header>
       <h4>{item.subject || 'Travel email'}</h4>
-      <p className="gmail-muted">Received: {item.receivedAt ? new Date(item.receivedAt).toLocaleString() : 'Unknown'}</p>
-      {duplicates > 0 && <p className="gmail-warning">Another email may refer to the same reservation. Check before approving.</p>}
+      <p className="gmail-muted">Received: {item.receivedAt
+        ? new Date(item.receivedAt).toLocaleString() : 'Date unknown'}</p>
+      {item.cancellationFlag &&
+        <p className="gmail-warning">Cancellation detected. Do not approve as a confirmed booking.
+          Verify the original message and update the reservation manually.</p>}
+      {item.status === 'pending' && <button type="button" disabled={saving}
+        onClick={() => onAction(itemId, item, 'outside').catch(e => setError(e.message))}>
+        Archive · outside itinerary
+      </button>}
       <div className="gmail-review-fields">
-        <label>Title<input value={draft.title} maxLength={140} onChange={(e) => setField('title', e.target.value)} /></label>
-        <label>City / location<input value={draft.place} maxLength={100} onChange={(e) => setField('place', e.target.value)} /></label>
-        <label>Check-in / travel date<input type="date" value={draft.checkIn} onChange={(e) => setField('checkIn', e.target.value)} /></label>
-        <label>Check-out / end date<input type="date" value={draft.checkOut} onChange={(e) => setField('checkOut', e.target.value)} /></label>
-        <label className="gmail-review-notes">Notes for family (no PINs, confirmation codes or private data)
-          <textarea rows={2} value={draft.notes} maxLength={350} onChange={(e) => setField('notes', e.target.value)} />
+        <label>Send to
+          <select value={category} onChange={e => {
+            setCategory(e.target.value); setExistingPath('');
+          }}>{options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        </label>
+        <label>Destination
+          <select value={destinationId} onChange={e => {
+            setDestinationId(e.target.value); setExistingPath('');
+          }}>
+            <option value="">Select destination</option>
+            {(trip.destinations || []).map(dest =>
+              <option key={dest.id} value={dest.id}>{dest.name}</option>)}
+          </select>
+        </label>
+        <label>Property / flight / activity name
+          <input value={draft.title} maxLength={140}
+            onChange={e => setField('title', e.target.value)}/></label>
+        {category === 'hotel' && <>
+          <label>City / place<input value={draft.place} maxLength={100}
+            onChange={e => setField('place', e.target.value)}/></label>
+          <label>Check-in<input type="date" value={draft.checkIn}
+            onChange={e => setField('checkIn', e.target.value)}/></label>
+          <label>Check-out<input type="date" value={draft.checkOut}
+            onChange={e => setField('checkOut', e.target.value)}/></label>
+          <label>Property address<input value={draft.address} onChange={e => setField('address', e.target.value)}/></label>
+          <label>Property phone<input value={draft.phone} onChange={e => setField('phone', e.target.value)}/></label>
+          <label>Property email<input type="email" value={draft.propertyEmail} onChange={e => setField('propertyEmail', e.target.value)}/></label>
+          <label>Confirmation number<input value={draft.confirmationNumber} onChange={e => setField('confirmationNumber', e.target.value)}/></label>
+          <label>Booking.com link<input type="url" value={draft.bookingLink} onChange={e => setField('bookingLink', e.target.value)}/></label>
+          <label>Free cancellation deadline (property local time)<input type="datetime-local" value={draft.cancellationDeadline} onChange={e => setField('cancellationDeadline', e.target.value)}/></label>
+          <label>Optional total price<input type="number" min="0" step=".01"
+            value={draft.price} onChange={e => setField('price', e.target.value)}/></label>
+          <label>Price currency<select value={draft.currency}
+            onChange={e => setField('currency', e.target.value)}>
+            <option>USD</option><option>ARS</option><option>ILS</option>
+          </select></label>
+        </>}
+        {category === 'flight' && (item.segments || []).length > 0 && <div className="gmail-match-panel">
+          <strong>Flights found in this ticket receipt</strong>
+          {(item.segments || []).map((leg, index) => <p key={index}>
+            {leg.number}: {leg.from} → {leg.to} · {leg.date} {leg.departure}
+            {leg.arrivalDate ? ' → ' + leg.arrivalDate : ''} {leg.arrival}
+          </p>)}
+          {(item.segments || []).length > 1 && <p className="gmail-warning">
+            Both legs will be approved together. Existing flights with matching number, date
+            and route will be enriched, not duplicated. Verify both legs before approving.
+          </p>}
+        </div>}
+        {category === 'flight' && <>
+          <label>Flight number<input value={draft.number}
+            onChange={e => setField('number', e.target.value)}/></label>
+          <label>Airline<input value={draft.airline}
+            onChange={e => setField('airline', e.target.value)}/></label>
+          <label>Flight date<input type="date" value={draft.date}
+            onChange={e => setField('date', e.target.value)}/></label>
+          <label>From airport<input value={draft.from}
+            onChange={e => setField('from', e.target.value)}/></label>
+          <label>To airport<input value={draft.to}
+            onChange={e => setField('to', e.target.value)}/></label>
+          <label>Departure time<input value={draft.departure}
+            onChange={e => setField('departure', e.target.value)}/></label>
+          <label>Arrival time<input value={draft.arrival}
+            onChange={e => setField('arrival', e.target.value)}/></label>
+        </>}
+        {category === 'activity' && <>
+          <label>Activity date<input type="date" value={draft.date}
+            onChange={e => setField('date', e.target.value)}/></label>
+          <label>Time<input value={draft.time}
+            onChange={e => setField('time', e.target.value)}/></label>
+          <label>Organizer<input value={draft.organizer}
+            onChange={e => setField('organizer', e.target.value)}/></label>
+          <label>Meeting point<input value={draft.meetingPoint}
+            onChange={e => setField('meetingPoint', e.target.value)}/></label>
+        </>}
+        <label className="gmail-review-notes">
+          Public trip notes — no PINs, ticket numbers or personal booking codes
+          <textarea rows={2} maxLength={350} value={draft.notes}
+            onChange={e => setField('notes', e.target.value)}/>
         </label>
       </div>
+      {destinationId && !multiFlight && <div className="gmail-match-panel">
+        <strong>Link this email to a destination record</strong>
+        {matches.length > 0 &&
+          <p className="gmail-warning">{matches.length} potential duplicate(s) found.
+            Select an existing record. Creating a duplicate is disabled.</p>}
+        <select value={existingPath} onChange={e => {
+          setExistingPath(e.target.value); setReplaceConflicts(false);
+        }}>
+          <option value="">{matches.length
+            ? 'Select an existing match before approval'
+            : 'Create new confirmed record in selected destination'}</option>
+          {matchList.map(record =>
+            <option key={record.sourcePath} value={record.sourcePath}>
+              {record.displayName || record.name} — {record.checkIn || record.date || 'undated'}
+              {matches.some(x => x.sourcePath === record.sourcePath) ? ' ★ likely match' : ''}
+            </option>)}
+        </select>
+        {selected && <p className="gmail-muted">
+          Existing: {selected.displayName || selected.name}; only missing fields are
+          filled automatically. Existing confirmed data will not be overwritten.
+        </p>}
+        {conflicts.length > 0 && <label className="gmail-conflict">
+          <input type="checkbox" checked={replaceConflicts}
+            onChange={e => setReplaceConflicts(e.target.checked)}/>
+          Replace conflicting existing fields ({conflicts.join(', ')}) — only after checking Gmail.
+        </label>}
+      </div>}
+      {error && <p role="alert" className="gmail-error">{error}</p>}
       <div className="gmail-review-actions">
-        {item.gmailUrl && <a href={item.gmailUrl} target="_blank" rel="noreferrer">Open original in Gmail</a>}
-        <button disabled={saving} onClick={() => onAction(itemId, item, draft, 'reject')}>Dismiss</button>
-        <button disabled={saving || !canApprove} className="gmail-approve"
-          onClick={() => onAction(itemId, item, draft, 'approve')}>Approve summary</button>
+        {item.gmailUrl &&
+          <a href={item.gmailUrl} target="_blank" rel="noreferrer">Open original Gmail ↗</a>}
+        {item.status === 'pending' &&
+          <button disabled={saving} onClick={() => onAction(itemId, item, 'reject')
+            .catch(e => setError(e.message))}>Dismiss</button>}
+        <button className="gmail-approve" disabled={saving || !canApprove}
+          onClick={approve}>{saving ? 'Saving…' : 'Approve → Destination'}</button>
       </div>
-      {item.cancellationFlag && <p className="gmail-warning">
-        A cancellation does not automatically remove an existing itinerary booking. Check and adjust the trip manually.
-      </p>}
     </article>
   );
 }
 
-export default function GmailSync({ currentEmail }) {
+export default function GmailSync({ currentEmail, trip }) {
   const [queue, setQueue] = useState({});
-  const [approved, setApproved] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [filter, setFilter] = useState('pending');
   const [syncMeta, setSyncMeta] = useState(null);
 
   useEffect(() => {
-    const stopQueue = onValue(ref(database, QUEUE_PATH), (snapshot) => {
-      setQueue(snapshot.val() || {});
-      setLoading(false);
-      setError('');
-    }, () => { setLoading(false); setError('Gmail review queue is not readable. Check your Firebase rules.'); });
-    const stopApproved = onValue(ref(database, 'trip/bookingSummaries'), (snapshot) => {
-      setApproved(snapshot.val() || {});
-    }, () => setError('Approved summaries could not be loaded.'));
-    const stopMeta = onValue(ref(database, 'gmailImport/meta'), (snapshot) => {
-      setSyncMeta(snapshot.val());
-    }, () => setSyncMeta(null));
-    return () => { stopQueue(); stopApproved(); stopMeta(); };
+    const stopQueue = onValue(ref(database, QUEUE_PATH), snapshot => {
+      setQueue(snapshot.val() || {}); setLoading(false); setError('');
+    }, () => { setLoading(false); setError('Gmail queue is not readable. Check Firebase rules.'); });
+    const stopMeta = onValue(ref(database, 'gmailImport/meta'),
+      snap => setSyncMeta(snap.val()), () => setSyncMeta(null));
+    return () => { stopQueue(); stopMeta(); };
   }, []);
 
-  const items = useMemo(() => Object.entries(queue)
-    .filter(([, item]) => item && typeof item === 'object')
-    .sort((a, b) => (b[1].receivedAt || '').localeCompare(a[1].receivedAt || '')), [queue]);
-  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending');
-  const displayed = filter === 'pending' ? pending : items.filter(([, item]) => item.status === filter);
-  const groupCount = useMemo(() => {
-    const groups = {};
-    for (const [, item] of items) {
-      if (item.bookingGroup) groups[item.bookingGroup] = (groups[item.bookingGroup] || 0) + 1;
-    }
-    return groups;
-  }, [items]);
+  const items = Object.entries(queue).filter(([, item]) => item && typeof item === 'object')
+    .sort((a, b) => (b[1].receivedAt || '').localeCompare(a[1].receivedAt || ''));
+  const inRoute = item => item.category === 'flight' || item.category === 'flight_extra' || !item.place ||
+    (trip?.destinations || []).some(d => cityMatches(item.place, d.name));
+  const pending = items.filter(([, item]) => (item.status || 'pending') === 'pending' && inRoute(item));
+  const outside = items.filter(([, item]) => item.status === 'outside_itinerary' ||
+    ((item.status || 'pending') === 'pending' && !inRoute(item)));
+  const unlinked = items.filter(([id, item]) =>
+    item.status === 'approved' && !trip?.emailImports?.[id]);
+  const displayed = filter === 'pending' ? pending : filter === 'approved' ? unlinked
+    : filter === 'outside' ? outside : items.filter(([, item]) => item.status === 'rejected');
 
-  const act = async (itemId, item, draft, action) => {
-    if (busyId || item.status !== 'pending') return;
-    setBusyId(itemId);
-    setError('');
-    const changes = {
-      [`${QUEUE_PATH}/${itemId}/status`]: action === 'approve' ? 'approved' : 'rejected',
-      [`${QUEUE_PATH}/${itemId}/reviewedAt`]: Date.now(),
-      [`${QUEUE_PATH}/${itemId}/reviewedBy`]: currentEmail || ''
-    };
-    if (action === 'approve') {
-      if (!draft.title.trim() || !draft.place.trim() || item.cancellationFlag) {
-        setBusyId(null);
-        return;
-      }
-      changes[`trip/bookingSummaries/${itemId}`] = safeSummary(item, draft);
-    }
+  const act = async (id, item, action, opts = {}) => {
+    if (busyId) throw new Error('Wait for the current review to finish.');
+    setBusyId(id); setError(''); setNotice('');
     try {
-      // One atomic multipath write: no partial status change if publication fails.
-      await update(ref(database), changes);
-    } catch (e) {
-      setError('Could not save the review. Please check database write permissions.');
-    } finally {
-      setBusyId(null);
-    }
+      if (action === 'approve') {
+        // Perform an atomic multipath update, linking an approved email directly
+        // to a destination; avoid a second, contradictory Reviewed bookings store.
+        const { updates, path, result } = opts.multiFlight
+          ? prepareMultiFlightApproval(trip, queue, id, opts.destinationId)
+          : prepareApproval(trip, queue, id, opts);
+        updates['gmailImport/reviewQueue/' + id + '/reviewedBy'] = currentEmail;
+        await update(ref(database), updates);
+        setNotice('Approved: ' + result + ' ' + path + '. See the Destination tab.');
+      } else if (action === 'restore') {
+        if (item.status !== 'outside_itinerary') throw new Error('This email is not archived.');
+        await update(ref(database), {
+          ['gmailImport/reviewQueue/' + id + '/status']: 'pending',
+          ['gmailImport/reviewQueue/' + id + '/reviewedAt']: null,
+          ['gmailImport/reviewQueue/' + id + '/reviewedBy']: null
+        });
+        setNotice('Restored to Pending for manual review.');
+      } else if (action === 'outside') {
+        if (trip?.emailImports?.[id]) throw new Error('Already linked: remove from the trip separately.');
+        await update(ref(database), {
+          ['gmailImport/reviewQueue/' + id + '/status']: 'outside_itinerary',
+          ['gmailImport/reviewQueue/' + id + '/reviewedAt']: Date.now(),
+          ['gmailImport/reviewQueue/' + id + '/reviewedBy']: currentEmail
+        });
+        setNotice('Archived outside current itinerary. Nothing was deleted.');
+      } else {
+        if (item.status !== 'pending') throw new Error('This email is already reviewed.');
+        await update(ref(database), {
+          ['gmailImport/reviewQueue/' + id + '/status']: 'rejected',
+          ['gmailImport/reviewQueue/' + id + '/reviewedAt']: Date.now(),
+          ['gmailImport/reviewQueue/' + id + '/reviewedBy']: currentEmail
+        });
+        setNotice('Email dismissed without changing the trip.');
+      }
+    } finally { setBusyId(null); }
   };
-
   return (
     <section className="gmail-sync-container">
       <div className="gmail-review-top">
-        <div><h2>Gmail booking review</h2>
-          <p>Only editors can access imported email metadata. Nothing is published to the family until you approve it.</p>
-        </div>
-        <span className="gmail-count">{pending.length} pending</span>
+        <div><h2>Gmail review</h2>
+          <p>Approve a hotel, flight or activity directly into Destinations.
+            Matching reservations are enriched, never silently duplicated.</p></div>
+        <span className="gmail-count">{loading ? 'Loading' : error ? 'Unavailable'
+          : pending.length + ' pending'}</span>
       </div>
       <div className="gmail-security-note">
-        Source: Gmail label <strong>Argentina2027</strong>. Sync runs separately through Google Apps Script.
-        The importer must be authorized and configured before emails appear here.
-        Only safe, manually approved summaries are added to the trip.
-        <p className="gmail-muted">
-          {syncMeta?.lastSyncAt
-            ? `Last completed sync: ${new Date(syncMeta.lastSyncAt).toLocaleString()}; ${syncMeta.newlyStaged || 0} new items on that run.`
-            : 'No completed sync recorded yet. Set a daily trigger in Apps Script (12 AM–1 AM Israel time).'}
-        </p>
+        <p><strong>Review interface: flight-details-v2</strong> · if this label is missing on
+          your Preview, Vercel is displaying an older build.</p>
+        Gmail label <strong>Argentina2027</strong> · daily Apps Script import.
+        {syncMeta?.lastSyncAt
+          ? <p>Last sync {new Date(syncMeta.lastSyncAt).toLocaleString()} ·
+            {syncMeta.newlyStaged || 0} newly staged on last run.</p>
+          : <p>No completed import reported yet. Verify Apps Script.</p>}
+        {syncMeta?.lastBackfillAt
+          ? <p>Last re-scan {new Date(syncMeta.lastBackfillAt).toLocaleString()} ·
+              {syncMeta.backfillExamined ?? 0} messages examined ·
+              {syncMeta.backfillEnriched ?? 0} records enriched.
+              {syncMeta.importerVersion ? ' Importer: ' + syncMeta.importerVersion : ''}
+            </p>
+          : <p>No re-scan recorded in Firebase. Updating GitHub alone does not update Apps Script.</p>}
       </div>
-      <div className="gmail-filter" role="group" aria-label="Review filter">
-        {[['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Dismissed']].map(([id, title]) => (
-          <button key={id} className={filter === id ? 'active' : ''} onClick={() => setFilter(id)}>{title}</button>
-        ))}
+      <div className="gmail-filter">
+        {[
+          ['pending', 'Pending (' + pending.length + ')'],
+          ['approved', 'Older approved emails to link (' + unlinked.length + ')'],
+          ['rejected', 'Dismissed'],
+          ['outside', 'Outside itinerary (' + outside.length + ')']
+        ].map(([key, label]) =>
+          <button key={key} className={key === filter ? 'active' : ''}
+            onClick={() => setFilter(key)}>{label}</button>)}
       </div>
       {error && <p className="gmail-error" role="alert">{error}</p>}
-      {loading && <p>Loading review queue...</p>}
-      {!loading && displayed.length === 0 && !error && <p className="gmail-empty">
-        No {filter} emails. {filter === 'pending' ? 'New matching mail appears here after the sync script runs.' : ''}
-      </p>}
+      {notice && <p className="gmail-security-note" role="status">{notice}</p>}
+      {loading && <p>Loading review queue…</p>}
+      {!loading && !error && !displayed.length &&
+        <p className="gmail-empty">No {filter === 'approved' ? 'older approvals to link' : filter} emails.</p>}
       <div className="gmail-review-grid">
-        {displayed.map(([id, item]) => filter === 'pending'
-          ? <ReviewCard key={id} itemId={id} item={item} saving={busyId === id}
-              duplicates={Math.max(0, (groupCount[item.bookingGroup] || 0) - 1)} onAction={act} />
-          : <article key={id} className="gmail-review-card">
-              <h4>{item.title || item.subject || 'Travel email'}</h4>
-              <p className="gmail-muted">Status: {item.status}; {item.place || 'No city provided'}</p>
-              {filter === 'approved' && approved[id] && <p>Family summary: {approved[id].title} — {approved[id].place}</p>}
-              {item.gmailUrl && <a href={item.gmailUrl} target="_blank" rel="noreferrer">View in Gmail</a>}
-            </article>)}
+        {!error && displayed.map(([id, item]) => filter === 'rejected' || filter === 'outside'
+          ? <article key={id} className="gmail-review-card">
+              <h4>{item.subject || 'Travel email'}</h4>
+              <p>{filter === 'outside' ? 'Archived; restore flight confirmations to review.' : 'Dismissed. No changes were made to the trip.'}</p>
+              {filter === 'outside' && <button disabled={Boolean(busyId)}
+                onClick={() => act(id, item, 'restore').catch(e => setError(e.message))}>
+                Restore to Pending
+              </button>}
+              {item.gmailUrl && <a href={item.gmailUrl} target="_blank" rel="noreferrer">
+                View in Gmail</a>}
+            </article>
+          : <ReviewCard key={id} itemId={id} item={item} trip={trip}
+              saving={busyId === id} onAction={act}/>)}
       </div>
     </section>
   );
