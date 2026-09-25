@@ -77,7 +77,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     try {
       await onAction(itemId, item, 'approve', {
         category, destinationId, existingPath,
-        replaceConflicts, draft, multiFlight
+        replaceConflicts, replaceDates: confirmedDateChange, draft, multiFlight
       });
     } catch (e) { setError(e.message || 'Could not approve this record.'); }
   };
@@ -213,7 +213,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
         </select>
         {datesDiffer && <label className="gmail-conflict">
           <input type="checkbox" checked={confirmedDateChange}
-            onChange={e => { setConfirmedDateChange(e.target.checked); setReplaceConflicts(e.target.checked); }}/>
+            onChange={e => setConfirmedDateChange(e.target.checked)}/>
           This booking has revised dates. Update the selected reservation from
           {selected.checkIn || '?'}–{selected.checkOut || '?'} to
           {draft.checkIn || '?'}–{draft.checkOut || '?'} after checking the
