@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-25-field-coverage-v3';
+const IMPORTER_VERSION = '2026-09-25-cancellation-parser-v4';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -251,35 +251,41 @@ function bookingMetadata_(message) {
     });
   const email = field('(?:property |hotel )?e-?mail|contact email');
   const phone = field('(?:property |hotel )?(?:phone|telephone|tel\\.?|telefono)');
-  // Booking.com cancellation policies often appear as a sentence rather than
-  // a labelled ISO timestamp. Never infer a deadline from the check-in date.
-  const cancellationText = body.match(/(?:free cancellation|cancel for free|no cancellation fee)[^\n]{0,110}?(?:until|through|before)\s+([^\n.]{5,85})/i);
-  const deadlineLine = field('free cancellation until|cancel for free until|cancellation deadline|cancelacion gratuita hasta');
-  // Booking.com often lists a separate "Cancellation cost" table:
-  // "until March 7, 2027 11:59 PM:" followed by "US$0".
-  // This is stronger evidence than generic policy text ("1 day before arrival").
-  const lines = body.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const costIndex = lines.findIndex(line => /^cancellation cost$/i.test(line));
-  let freeCostDeadline = '';
-  if (costIndex >= 0) {
-    for (let i = costIndex + 1; i < Math.min(lines.length - 1, costIndex + 10); i++) {
-      const m = lines[i].match(/^until\s+(.+?)\s*:\s*$/i);
-      if (!m || !/^(?:US\$|USD|ARS|AR\$|ILS|₪)\s*0(?:[.,]00?)?$/.test(lines[i + 1])) continue;
-      freeCostDeadline = m[1];
-      break;
-    }
+  // Booking.com uses several plaintext and HTML arrangements for the
+  // Cancellation cost table. Prefer the explicit zero-fee window:
+  // "until March 7, 2027 11:59 PM: US$0".
+  // Generic text such as "until 1 day before arrival" is intentionally
+  // insufficient, since we must not invent a timezone-specific deadline.
+  const cancellationSource = [plain, stripped].map(src => src
+    .replace(/\u00a0|&nbsp;|&#160;/gi, ' ')
+    .replace(/[ \t\r\n]+/g, ' '));
+  let cancellationDeadline = '';
+  const months = '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
+  const dateAndTime = '(' + months + '\\s+\\d{1,2},?\\s+20\\d{2}\\s+\\d{1,2}:\\d{2}\\s*[AP]M)';
+  const zeroFee = '(?:US\\$|USD|AR\\$|ARS|ILS|₪|\\$)\\s*0(?:[.,]00?)?\\b';
+  const explicitCost = new RegExp(
+    'cancellation\\s+cost[\\s\\S]{0,400}?until\\s+' + dateAndTime +
+    '\\s*:?\\s*(?:[-–•]\\s*)?' + zeroFee, 'i');
+  const directDeadline = new RegExp(
+    '(?:free\\s+cancellation\\s+(?:until|through)|cancel\\s+for\\s+free\\s+(?:until|through))\\s+' +
+    dateAndTime, 'i');
+  for (const source of cancellationSource) {
+    const match = source.match(explicitCost) || source.match(directDeadline);
+    if (!match) continue;
+    const value = match[1];
+    const isoDate = parseDate_(value);
+    const time = value.match(/(\d{1,2}):(\d{2})\s*([AP])M/i);
+    if (!isoDate || !time) continue;
+    const hour = Number(time[1]) % 12 + (time[3].toUpperCase() === 'P' ? 12 : 0);
+    cancellationDeadline = isoDate + 'T' + String(hour).padStart(2, '0') + ':' + time[2];
+    break;
   }
-  const deadlineSource = freeCostDeadline || deadlineLine ||
-    (cancellationText ? cancellationText[1] : '');
-  const iso = deadlineSource.match(/20\d{2}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
-  const dateValue = parseDate_(deadlineSource);
-  const timeMatch = deadlineSource.match(/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)/i);
-  let cancellationDeadline = iso ? iso[0].replace(' ', 'T') : '';
-  if (!cancellationDeadline && dateValue && timeMatch) {
-    let hour = Number(timeMatch[1]) % 12;
-    if (/p/i.test(timeMatch[3])) hour += 12;
-    cancellationDeadline = dateValue + 'T' + String(hour).padStart(2, '0') +
-      ':' + (timeMatch[2] || '00');
+  // Labelled ISO date-time is also unambiguous if explicitly described as a
+  // cancellation deadline in this booking message.
+  if (!cancellationDeadline) {
+    const labelled = field('free cancellation until|cancel for free until|cancellation deadline|cancelacion gratuita hasta');
+    const match = labelled.match(/(20\d{2}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    if (match && parseDate_(match[1])) cancellationDeadline = match[1] + 'T' + match[2];
   }
   return {
     address: field('(?:property )?address|location|direccion'),
