@@ -16,8 +16,54 @@ const overlap = (a, b) => a.checkIn && a.checkOut && b.checkIn && b.checkOut &&
   a.checkIn < b.checkOut && b.checkIn < a.checkOut;
 export const cityMatches = (a, b) => {
   const x = hotelCity(a), y = hotelCity(b);
-  return !!x && !!y && (x === y || x.replace(/^el-/, '') === y.replace(/^el-/, ''));
+  const canonical = city => city
+    .replace(/-(?:return|arrival|departure|second-visit|second-stay)$/, '')
+    .replace(/^el-/, '');
+  return !!x && !!y && canonical(x) === canonical(y);
 };
+
+/** Staged Booking.com update receipts may replace an older confirmation for
+ * the same reservation. Only an exact confirmation number identifies the
+ * same booking: matching property names or overlapping dates are insufficient.
+ * This is a display-only filter; no queue entries are deleted or approved.
+ */
+export function supersededReviewIds(queue) {
+  const newestByConfirmation = new Map();
+  const superseded = new Set();
+  const entries = Object.entries(queue || {}).filter(([, item]) =>
+    item && item.category === 'hotel' &&
+    /^(pending|approved)$/.test(item.status || 'pending') &&
+    /^[0-9]{6,14}$/.test(String(item.confirmationNumber || '')));
+  for (const [id, item] of entries) {
+    const key = String(item.confirmationNumber);
+    const stamp = Date.parse(item.receivedAt || '') || 0;
+    const existing = newestByConfirmation.get(key);
+    if (!existing || stamp > existing.stamp ||
+        stamp === existing.stamp && id > existing.id) {
+      newestByConfirmation.set(key, { id, stamp });
+    }
+  }
+  for (const [id, item] of entries) {
+    if (newestByConfirmation.get(String(item.confirmationNumber))?.id !== id &&
+        (item.status || 'pending') === 'pending') superseded.add(id);
+  }
+  return superseded;
+}
+
+/** Show potential date revisions for the same property even when dates no longer
+ * overlap; editors must explicitly confirm date replacements before update.
+ */
+export function samePropertyOptions(trip, destinationId, draft) {
+  const proposedName = norm(draft.title)
+    .replace(/^(?:your updated booking at|your booking is confirmed at|thanks your booking is confirmed at)\s+/, '');
+  if (!proposedName || !draft.place) return [];
+  return existingRecords(trip, 'hotel', destinationId).filter(row => {
+    const name = norm(row.name)
+      .replace(/^(?:your updated booking at|your booking is confirmed at|thanks your booking is confirmed at)\s+/, '');
+    return name === proposedName && cityMatches(row.city, draft.place);
+  });
+}
+
 export const destinationIndex = (destinations, id) =>
   (destinations || []).findIndex(d => String(d.id) === String(id));
 
