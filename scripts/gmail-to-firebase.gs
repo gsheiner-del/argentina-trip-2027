@@ -173,6 +173,44 @@ function flightFields_(subject, body, html) {
   }).filter(x => x && x.from && x.to && x.date);
   // Multiple segments in one receipt must be reviewed as a round trip; never
   // silently turn the return flight into a duplicate outbound booking.
+
+  // Forwarded EL AL receipts often arrive as plain-text columns instead of
+  // HTML tables. Each leg follows: FROM, TO, LY flight, departure time/date,
+  // arrival time/date. Detect both legs rather than mistaking the return
+  // date for the outbound flight. Dates and times are never guessed.
+  if (!segments.length) {
+    const lines = String(body || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    const isCompactDate = /^\d{1,2}[a-z]{3}20\d{2}$/i;
+    const compactDate = value => parseDate_(String(value || '')
+      .replace(/^(\d{1,2})([a-z]{3})(20\d{2})$/i, '$1 $2 $3'));
+    for (let i = 0; i < lines.length; i++) {
+      const flight = lines[i].match(/^(LY|AR|FO|LA|JA|IB|KL|AF|LH|UX)\s?(\d{2,4})$/i);
+      if (!flight) continue;
+      const preceding = lines.slice(Math.max(0, i - 9), i)
+        .map(line => airport(line)).filter(Boolean);
+      // Two distinct terminal codes immediately before this flight.
+      const route = preceding.slice(-2);
+      if (route.length !== 2 || route[0] === route[1]) continue;
+      const after = lines.slice(i + 1, i + 9);
+      const stamps = [];
+      for (let j = 0; j + 1 < after.length; j++) {
+        const time = after[j].match(/^([01]?\d|2[0-3]):[0-5]\d$/);
+        const date = isCompactDate.test(after[j + 1]) ? compactDate(after[j + 1]) : '';
+        if (time && date) {
+          stamps.push({ time: after[j], date });
+          j++;
+        }
+      }
+      if (stamps.length >= 2) {
+        segments.push({
+          number: flight[1].toUpperCase() + flight[2],
+          from: route[0], to: route[1],
+          date: stamps[0].date, departure: stamps[0].time,
+          arrivalDate: stamps[1].date, arrival: stamps[1].time
+        });
+      }
+    }
+  }
   const first = segments[0];
   if (first) return { airline, ...first, segments };
   const numberLine = labelledLine_(body, 'flight(?: number| no\\.?| #)?|vuelo(?: número)?');
@@ -216,7 +254,22 @@ function bookingMetadata_(message) {
   // a labelled ISO timestamp. Never infer a deadline from the check-in date.
   const cancellationText = body.match(/(?:free cancellation|cancel for free|no cancellation fee)[^\n]{0,110}?(?:until|through|before)\s+([^\n.]{5,85})/i);
   const deadlineLine = field('free cancellation until|cancel for free until|cancellation deadline|cancelacion gratuita hasta');
-  const deadlineSource = deadlineLine || (cancellationText ? cancellationText[1] : '');
+  // Booking.com often lists a separate "Cancellation cost" table:
+  // "until March 7, 2027 11:59 PM:" followed by "US$0".
+  // This is stronger evidence than generic policy text ("1 day before arrival").
+  const lines = body.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const costIndex = lines.findIndex(line => /^cancellation cost$/i.test(line));
+  let freeCostDeadline = '';
+  if (costIndex >= 0) {
+    for (let i = costIndex + 1; i < Math.min(lines.length - 1, costIndex + 10); i++) {
+      const m = lines[i].match(/^until\s+(.+?)\s*:\s*$/i);
+      if (!m || !/^(?:US\$|USD|ARS|AR\$|ILS|₪)\s*0(?:[.,]00?)?$/.test(lines[i + 1])) continue;
+      freeCostDeadline = m[1];
+      break;
+    }
+  }
+  const deadlineSource = deadlineLine || freeCostDeadline ||
+    (cancellationText ? cancellationText[1] : '');
   const iso = deadlineSource.match(/20\d{2}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
   const dateValue = parseDate_(deadlineSource);
   const timeMatch = deadlineSource.match(/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)/i);
