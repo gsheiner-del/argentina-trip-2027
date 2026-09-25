@@ -240,3 +240,27 @@ test('Conflicting itineraries with the same booking and passenger never enrich a
   const donors = buildFlightDonors_([leg('LY41', 'a'), leg('LY43', 'b')]);
   assert.equal(linkedFlightDetails_(ancillary, extract_(ancillary), donors).segments.length, 0);
 });
+
+
+test('Duplicate real-world receipt formats do not invalidate a complete EL AL itinerary', () => {
+  const basic = [
+    'Buenos Aires Argentina', 'Booking code: ABC123',
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: IA',
+    'LY41', '18:15', '07Mar2027', '05:40', '08Mar2027'
+  ];
+  const full = basic.concat([
+    'BUENOS AIRES MINISTRO PISTARINI', 'Terminal: P',
+    'TEL AVIV YAFO BEN GURION INTL', 'Terminal: 3',
+    'LY42', '09:00', '24Mar2027', '05:15', '25Mar2027'
+  ]);
+  const subject = 'SMITH/MARINA: Your EL AL Booking Confirmation';
+  const donor = email(subject, full.join('\n'), 'full');
+  const duplicate = email('Fwd: ' + subject, full.join('\n'), 'forwarded');
+  const ancillary = email(subject,
+    'Electronic Miscellaneous Document. EZE Argentina March 2027. Booking code: ABC123',
+    'seat');
+  const donors = buildFlightDonors_([donor, duplicate]);
+  assert.equal(donors.ambiguous.size, 0);
+  assert.equal(linkedFlightDetails_(ancillary, extract_(ancillary), donors).segments.length, 2);
+});
