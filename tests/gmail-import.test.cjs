@@ -151,3 +151,40 @@ test('Booking.com cancellation cost table supplies local free-cancellation deadl
   assert.equal(rec.checkIn, '2027-03-09');
   assert.equal(rec.checkOut, '2027-03-11');
 });
+
+
+test('Booking.com cancellation table in condensed HTML or wrapped text extracts the zero-fee deadline', () => {
+  const compactHtml = [
+    '<div>Ushuaia Argentina March 2027</div>',
+    '<div>Check-in</div><div>March 9, 2027</div>',
+    '<div>Check-out</div><div>March 11, 2027</div>',
+    '<div>Cancellation cost</div><p>- until March 7, 2027 11:59 PM:</p>',
+    '<span>US$0</span><p>from March 8, 2027 12:00 AM: US$156.40</p>'
+  ].join('');
+  const msg = email(
+    'Your booking is confirmed at Mirador del Kaiken',
+    'Argentina Ushuaia March 2027; Check-in March 9, 2027; Check-out March 11, 2027',
+    'booking-with-html', compactHtml
+  );
+  assert.equal(extract_(msg).cancellationDeadline, '2027-03-07T23:59');
+
+  const wrapped = [
+    'Ushuaia Argentina March 2027',
+    'Cancellation cost:',
+    'until March 7, 2027 11:59 PM:',
+    '-',
+    'US$0',
+    'from March 8, 2027 12:00 AM:',
+    'US$156.40'
+  ].join('\n');
+  assert.equal(extract_(email(
+    'Your booking is confirmed at Mirador del Kaiken', wrapped, 'booking-with-wrap'
+  )).cancellationDeadline, '2027-03-07T23:59');
+});
+
+test('A relative cancellation policy without an explicit date is not guessed', () => {
+  const body = 'Ushuaia Argentina March 2027\nCancellation policy\n' +
+    'You can cancel for free until 1 day before arrival.';
+  const result = extract_(email('Your booking is confirmed at Mirador del Kaiken', body));
+  assert.equal(result.cancellationDeadline, '');
+});
