@@ -72,7 +72,7 @@ export function parsePlanningUsd(raw) {
   if (raw == null || String(raw).trim() === '' || /^(tbd|pending)$/i.test(String(raw).trim()))
     return null;
   const match = String(raw).trim().match(
-    /^(?:estimated\s*)?(?:(?:USD|US\$)\s*|\$\s*)?(\d[\d,]*(?:\.\d{1,2})?)(?:\s*[-–]\s*(\d[\d,]*(?:\.\d{1,2})?))?(\+)?$/i
+    /^(?:estimated\s*)?(?:(?:USD|US\$)\s*|\$\s*)?(\d[\d,]*(?:\.\d{1,2})?)(?:\s*[-–]\s*(\d[\d,]*(?:\.\d{1,2})?))?\s*(\+)?$/i
   );
   if (!match) return null;
   const minimum = Number(match[1].replace(/,/g, ''));
