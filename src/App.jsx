@@ -195,6 +195,13 @@ export default function App() {
     await update(ref(database), updates);
   };
 
+  const saveCoupleAllocations = async (allocations) => {
+    editorOnly();
+    // Only update the allocation tree, preserving current planning totals,
+    // Gmail-approved reservations and real tracked expenses.
+    await set(ref(database, 'trip/budget/coupleAllocations'), allocations);
+  };
+
   const importScreenshot = async (rows) => {
     editorOnly();
     if (!Array.isArray(rows) || rows.length > 100)
@@ -325,7 +332,8 @@ export default function App() {
             onMoveStay={moveStay} onArchiveStay={setStayArchived}
           />
         )}
-        {currentTab === 'budget' && <Budget tripData={tripData} />}
+        {currentTab === 'budget' && <Budget tripData={tripData} userRole={userRole}
+            onSaveCoupleAllocations={saveCoupleAllocations} />}
         {currentTab === 'gmail' && userRole === 'edit' &&
           <GmailSync currentEmail={userEmail} trip={tripData} />}
       </main>
