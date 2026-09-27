@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { database, ref, onValue, update } from '../firebase';
 import { existingRecords, likelyMatches, samePropertyOptions, supersededReviewIds, prepareApproval, prepareMultiFlightApproval } from '../utils/tripReview.js';
-import { cityMatches } from '../utils/tripReview.js';
+import { cityMatches, resolveStayVisit } from '../utils/tripReview.js';
 import '../styles/GmailSync.css';
 
 const QUEUE_PATH = 'gmailImport/reviewQueue';
@@ -35,7 +35,9 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
   const [category, setCategory] = useState(() => initialCategory(item));
   const [draft, setDraft] = useState(() => initDraft(item));
   const [destinationId, setDestinationId] = useState(() =>
-    (trip.destinations || []).find(dest => cityMatches(item.place, dest.name))?.id || '');
+    (item.category === 'hotel'
+      ? resolveStayVisit(trip, item.place, item.checkIn, item.checkOut)
+      : (trip.destinations || []).find(dest => cityMatches(item.place, dest.name)))?.id || '');
   const [existingPath, setExistingPath] = useState('');
   const [confirmedDateChange, setConfirmedDateChange] = useState(false);
   const [replaceConflicts, setReplaceConflicts] = useState(false);
@@ -49,6 +51,10 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
   const setField = (field, value) => setDraft(prev => ({ ...prev, [field]: value }));
   const suggestedCityOutsideRoute = item.place && !(trip.destinations || [])
     .some(dest => cityMatches(item.place, dest.name));
+  const expectedVisit = category === 'hotel'
+    ? resolveStayVisit(trip, draft.place, draft.checkIn, draft.checkOut) : null;
+  const selectedVisitMismatch = Boolean(expectedVisit && destinationId &&
+    String(expectedVisit.id) !== String(destinationId));
   const matches = useMemo(() =>
     destinationId ? likelyMatches(trip, category, destinationId, draft) : [],
     [trip, category, destinationId, draft]);
@@ -69,7 +75,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
   const multiFlight = category === 'flight' && (item.segments || []).length > 1;
   const canApprove = multiFlight ? !item.cancellationFlag && Boolean(destinationId) :
     !item.cancellationFlag && draft.title.trim() && destinationId &&
-    cityAgrees && (!datesDiffer || confirmedDateChange) &&
+    cityAgrees && !selectedVisitMismatch && (!datesDiffer || confirmedDateChange) &&
     (existingPath || matches.length === 0);
 
   const approve = async () => {
@@ -185,6 +191,10 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             onChange={e => setField('notes', e.target.value)}/>
         </label>
       </div>
+      {selectedVisitMismatch && <p className="gmail-error">
+        This stay is {draft.checkIn}–{draft.checkOut}, which belongs to
+        {expectedVisit.name}. Select the correct visit before approving.
+      </p>}
       {category === 'hotel' && destinationId && !cityAgrees &&
         <p className="gmail-error">Hotel city and selected destination do not match.
           Choose the matching destination; for Buenos Aires use Buenos Aires (Return)
