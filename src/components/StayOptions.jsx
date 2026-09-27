@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { existingRecords, cityMatches } from '../utils/tripReview.js';
+import { existingRecords, cityMatches, isMisplacedStay } from '../utils/tripReview.js';
 import { groupHotelOptions } from '../utils/hotels.js';
 import './HotelBookings.css';
 import './StayOptions.css';
@@ -13,14 +13,21 @@ const mapsLink = address => 'https://www.google.com/maps/dir/?api=1&destination=
 const wazeLink = address => 'https://waze.com/ul?q=' + encodeURIComponent(address) + '&navigate=yes';
 const whatsappLink = phone => { const digits = String(phone || '').replace(/\D/g, ''); return digits.length >= 8 ? 'https://wa.me/' + digits : ''; };
 
-export default function StayOptions({ trip, destination, userRole, onSelect, onImport }) {
+export default function StayOptions({ trip, destination, userRole, onSelect, onImport, onMoveStay, onArchiveStay }) {
   const editor = userRole === 'edit';
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const rows = useMemo(() => existingRecords(trip, 'hotel', destination.id),
     [trip, destination.id]);
-  const groups = useMemo(() => groupHotelOptions(rows), [rows]);
+  const archived = rows.filter(row => row.status === 'superseded');
+  const misplaced = rows.map(row => ({ ...row,
+    correctDestination: isMisplacedStay(trip, destination, row) }))
+    .filter(row => row.correctDestination && row.status !== 'superseded');
+  const activeRows = rows.filter(row => row.status !== 'superseded' &&
+    !isMisplacedStay(trip, destination, row));
+  const groups = useMemo(() => groupHotelOptions(activeRows), [rows, trip, destination]);
   const selections = trip?.hotelSelections || {};
 
   const readFile = async event => {
@@ -79,6 +86,40 @@ export default function StayOptions({ trip, destination, userRole, onSelect, onI
         </>}
       </details>}
       {feedback && <p className="stay-feedback" role="status">{feedback}</p>}
+      {misplaced.length > 0 && <section className="hotel-stay" aria-label="Bookings assigned to wrong visit">
+        <h4>Bookings assigned to the wrong visit</h4>
+        <p>These stays are not counted as accommodation for {destination.name}.
+          Move them to their correct visit after checking the dates.</p>
+        {misplaced.map(hotel => <article className="hotel-card" key={hotel.sourcePath}>
+          <strong>{hotel.name}</strong>
+          <p>{hotel.checkIn} → {hotel.checkOut} · belongs to {hotel.correctDestination.name}</p>
+          {editor && <button disabled={busy} onClick={async () => {
+            if (!window.confirm('Move this booking to ' + hotel.correctDestination.name +
+              '? Its original record will be removed from this visit. The real reservation is unchanged.')) return;
+            setBusy(true); setFeedback('');
+            try {
+              await onMoveStay(hotel, hotel.correctDestination.id);
+              setFeedback('Booking moved to ' + hotel.correctDestination.name + '.');
+            } catch (error) { setFeedback(error.message || 'Move failed.'); }
+            finally { setBusy(false); }
+          }}>Move to {hotel.correctDestination.name}</button>}
+        </article>)}
+      </section>}
+      {archived.length > 0 && <section className="hotel-stay">
+        <button type="button" onClick={() => setShowArchived(v => !v)}>
+          {showArchived ? 'Hide' : 'Show'} {archived.length} archived booking(s)
+        </button>
+        {showArchived && archived.map(hotel => <article key={hotel.sourcePath} className="hotel-card">
+          <strong>{hotel.name}</strong> · {hotel.checkIn} → {hotel.checkOut}
+          <p>Removed from active trip display. This does not cancel a reservation.</p>
+          {editor && <button disabled={busy} onClick={async () => {
+            setBusy(true); setFeedback('');
+            try { await onArchiveStay(hotel, false); setFeedback('Booking restored.'); }
+            catch (error) { setFeedback(error.message || 'Restore failed.'); }
+            finally { setBusy(false); }
+          }}>Restore to trip</button>}
+        </article>)}
+      </section>}
       {groups.length === 0 && <p>No accommodation is currently linked to this destination.
         Confirm bookings through Gmail Review or import your confirmed screenshot list.</p>}
       {groups.map(group => {
@@ -129,6 +170,14 @@ export default function StayOptions({ trip, destination, userRole, onSelect, onI
                   {hotel.notes && <p>{hotel.notes}</p>}
                   {secureLink(hotel.bookingLink) &&
                     <a target="_blank" rel="noopener noreferrer" href={hotel.bookingLink}>View booking</a>}
+                  {editor && <button type="button" disabled={busy} onClick={async () => {
+                    if (!window.confirm('Remove this outdated booking from the active trip? ' +
+                      'This does not cancel the real reservation. You can restore it later.')) return;
+                    setBusy(true); setFeedback('');
+                    try { await onArchiveStay(hotel, true); setFeedback('Outdated booking archived.'); }
+                    catch (error) { setFeedback(error.message || 'Archive failed.'); }
+                    finally { setBusy(false); }
+                  }}>Remove outdated booking</button>}
                   {editor && confirmed(hotel.status) && selected !== hotel.id &&
                     <button className="stay-prefer" disabled={busy} onClick={async () => {
                       setBusy(true); setFeedback('');
