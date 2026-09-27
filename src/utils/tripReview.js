@@ -64,6 +64,34 @@ export function samePropertyOptions(trip, destinationId, draft) {
   });
 }
 
+/**
+ * Resolve the actual VISIT, not just the city. Buenos Aires is visited twice
+ * in this trip: arrival 8–9 March 2027, return 21–24 March 2027.
+ * Never guess when a booking falls outside a known visit window.
+ */
+export function resolveStayVisit(trip, city, checkIn, checkOut) {
+  const destinations = trip?.destinations || [];
+  const candidates = destinations.filter(d => cityMatches(city, d.name));
+  if (candidates.length === 1) return candidates[0];
+  if (!checkIn || !checkOut || candidates.length < 2) return null;
+  const isBuenosAires = cityMatches(city, 'Buenos Aires');
+  if (isBuenosAires) {
+    const visits = [
+      { label: /arrival/i, from: '2027-03-08', to: '2027-03-09' },
+      { label: /return|departure/i, from: '2027-03-21', to: '2027-03-24' }
+    ];
+    const exact = visits.filter(v => checkIn >= v.from && checkOut <= v.to)
+      .flatMap(v => candidates.filter(d => v.label.test(d.name)));
+    return exact.length === 1 ? exact[0] : null;
+  }
+  return null;
+}
+
+export function isMisplacedStay(trip, destination, hotel) {
+  const expected = resolveStayVisit(trip, hotel.city || destination.name,
+    hotel.checkIn, hotel.checkOut);
+  return expected && String(expected.id) !== String(destination.id) ? expected : null;
+}
 export const destinationIndex = (destinations, id) =>
   (destinations || []).findIndex(d => String(d.id) === String(id));
 
@@ -72,15 +100,19 @@ export function existingRecords(trip, category, destinationId) {
   if (idx < 0) return [];
   const dest = trip.destinations[idx];
   const field = category === 'hotel' ? 'hotels' : category === 'flight' ? 'flights' : 'activities';
-  const rows = (Array.isArray(dest[field]) ? dest[field] : []).filter(Boolean)
-    .map((row, i) => ({ ...row,
+  // Preserve original Firebase array indices even if a record was archived or
+  // moved leaving a null hole. Filtering first can corrupt write paths.
+  const rows = (Array.isArray(dest[field]) ? dest[field] : [])
+    .map((row, i) => row ? ({ ...row,
       sourcePath: 'trip/destinations/' + idx + '/' + field + '/' + i,
       sourceType: 'destination', city: row.city || dest.name,
       displayName: row.name || [row.airline, row.number].filter(Boolean).join(' ') || row.title
-    }));
+    }) : null).filter(Boolean);
   if (category === 'hotel') {
     for (const [id, row] of Object.entries(trip?.hotelBookings || {})) {
       if (!row || !cityMatches(row.city, dest.name)) continue;
+      const expected = resolveStayVisit(trip, row.city, row.checkIn, row.checkOut);
+      if (expected && String(expected.id) !== String(dest.id)) continue;
       rows.push({ ...row, id, sourcePath: 'trip/hotelBookings/' + id,
         sourceType: 'hotelBookings', city: row.city || dest.name,
         displayName: row.name });
@@ -141,6 +173,10 @@ export function prepareApproval(trip, queue, emailId, options) {
     const place = safe(input.place || dest.name, 100);
     if (!cityMatches(place, dest.name))
       throw new Error('Hotel city and selected destination do not match.');
+    const visit = resolveStayVisit(trip, place, checkIn, checkOut);
+    if (visit && String(visit.id) !== String(dest.id))
+      throw new Error('Booking dates belong to ' + visit.name +
+        '. Select that visit before approval.');
     record = { ...base, name: title, city: dest.name, checkIn, checkOut,
       notes: safe(input.notes, 350) };
     if (input.price !== undefined && input.price !== '') {

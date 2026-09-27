@@ -4,7 +4,7 @@ import CostTracker from './CostTracker';
 import StayOptions from './StayOptions';
 import NearbyExplore from './NearbyExplore';
 
-export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onUpdateCosts, onSelectPreferred, onImportScreenshot }) {
+export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
@@ -79,7 +79,8 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
         <div className="tab-content">
           {activeTab === 'stays' && (
             <StayOptions trip={trip} destination={current} userRole={userRole}
-              onSelect={onSelectPreferred} onImport={onImportScreenshot}/>
+              onSelect={onSelectPreferred} onImport={onImportScreenshot}
+              onMoveStay={onMoveStay} onArchiveStay={onArchiveStay}/>
           )}
 
           {activeTab === 'flights' && (
