@@ -7,7 +7,7 @@ import DestinationDetail from './components/DestinationDetail';
 import Budget from './components/Budget';
 import LoginPage from './components/LoginPage';
 import { groupHotelOptions } from './utils/hotels';
-import { existingRecords, screenshotImportPlan, cityMatches } from './utils/tripReview.js';
+import { existingRecords, screenshotImportPlan, cityMatches, resolveStayVisit } from './utils/tripReview.js';
 
 const USER_WHITELIST = {
   'gsheiner@gmail.com': { role: 'edit', display: 'Gennady' },
@@ -129,6 +129,69 @@ export default function App() {
     const updates = {};
     for (const alias of group.aliases) updates['trip/hotelSelections/' + alias] = null;
     updates['trip/hotelSelections/' + group.key] = hotel?.id || 'none';
+    await update(ref(database), updates);
+  };
+
+  // A hotel approved into the first Buenos Aires visit can be moved safely to
+  // the departure visit. Do not modify or delete the Gmail approval itself.
+  const moveStay = async (hotel, targetDestinationId) => {
+    editorOnly();
+    const source = hotel?.sourcePath || '';
+    if (!/^trip\\/(?:destinations\\/\\d+\\/hotels\\/\\d+|hotelBookings\\/[A-Za-z0-9_-]+)$/.test(source))
+      throw new Error('Unsupported booking record. Refresh and try again.');
+    const targetIndex = tripData.destinations.findIndex(d => String(d.id) === String(targetDestinationId));
+    const target = tripData.destinations[targetIndex];
+    if (!target || !cityMatches(hotel.city, target.name))
+      throw new Error('Choose a destination in the hotel city.');
+    const expected = resolveStayVisit(tripData, hotel.city, hotel.checkIn, hotel.checkOut);
+    if (!expected || String(expected.id) !== String(target.id))
+      throw new Error('Booking dates do not match the target visit.');
+    const current = source.split('/')[1] === 'destinations'
+      ? tripData.destinations[Number(source.split('/')[2])]?.hotels?.[Number(source.split('/')[4])]
+      : tripData.hotelBookings?.[source.split('/')[2]];
+    if (!current || String(current.id) !== String(hotel.originalId || hotel.id))
+      throw new Error('Booking has changed. Reload before moving.');
+    const sourceIndex = source.match(/^trip\\/destinations\\/(\\d+)\\/hotels\\//);
+    if (sourceIndex && Number(sourceIndex[1]) === targetIndex)
+      throw new Error('Booking is already in the correct visit.');
+    const targetHotels = target.hotels || [];
+    const same = targetHotels.find(h => h && h.id === current.id);
+    if (same) throw new Error('This booking already exists in the target visit. Review the duplicate first.');
+    const newPath = 'trip/destinations/' + targetIndex + '/hotels/' + targetHotels.length;
+    const updates = { [newPath]: { ...current, city: target.name }, [source]: null };
+    for (const [emailId, link] of Object.entries(tripData.emailImports || {})) {
+      if (link?.targetPath === source) {
+        updates['trip/emailImports/' + emailId + '/targetPath'] = newPath;
+        updates['gmailImport/privateBookings/' + emailId + '/targetPath'] = newPath;
+      }
+    }
+    await update(ref(database), updates);
+  };
+
+  // Reversible removal from the visible itinerary. Never cancel a real
+  // reservation, delete its approval, or destroy its historical metadata.
+  const setStayArchived = async (hotel, archived) => {
+    editorOnly();
+    const path = hotel?.sourcePath || '';
+    if (!/^trip\\/(?:destinations\\/\\d+\\/hotels\\/\\d+|hotelBookings\\/[A-Za-z0-9_-]+)$/.test(path))
+      throw new Error('Unsupported hotel path.');
+    const live = path.split('/')[1] === 'destinations'
+      ? tripData.destinations[Number(path.split('/')[2])]?.hotels?.[Number(path.split('/')[4])]
+      : tripData.hotelBookings?.[path.split('/')[2]];
+    if (!live || live.id !== (hotel.originalId || hotel.id))
+      throw new Error('Booking changed; refresh before continuing.');
+    if (archived && /cancel/i.test(live.status || ''))
+      throw new Error('Cancelled booking is already excluded from preferred stays.');
+    const updates = {
+      [path + '/status']: archived ? 'superseded' : (live.previousStatus || 'confirmed'),
+      [path + '/previousStatus']: archived ? (live.status || 'confirmed') : null,
+      [path + '/archivedAt']: archived ? Date.now() : null
+    };
+    if (archived) {
+      for (const [key, selectedId] of Object.entries(tripData.hotelSelections || {}))
+        if (selectedId === hotel.id || selectedId === hotel.originalId)
+          updates['trip/hotelSelections/' + key] = null;
+    }
     await update(ref(database), updates);
   };
 
@@ -259,6 +322,7 @@ export default function App() {
             onUpdateCosts={handleUpdateCosts} userRole={userRole}
             onSelectPreferred={selectPreferred}
             onImportScreenshot={importScreenshot}
+            onMoveStay={moveStay} onArchiveStay={setStayArchived}
           />
         )}
         {currentTab === 'budget' && <Budget tripData={tripData} />}
