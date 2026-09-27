@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { COST_CATEGORIES, aggregateCosts, convertPlanningEstimate, selectedHotelCosts, bookedDomesticFlights } from '../utils/budget';
 import { fetchUsdQuote, currentDisplay, formatMoney, FX_ATTRIBUTION_URL } from '../utils/fx';
+import { COUPLE_CATEGORIES, normalizedCoupleAllocations, validateCoupleAllocations, calculateCoupleEstimate } from '../utils/coupleBudget.js';
 import './Budget.css';
 
 const CURRENCIES = [
@@ -16,13 +17,45 @@ const LEGACY_ITEMS = [
   ['meals', '🍽️ Meals & Dining'],
   ['other', '📱 Other']
 ];
-export default function Budget({ tripData }) {
+export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) {
   const budget = tripData?.budget || {};
   const destinations = tripData?.destinations || [];
   const [currency, setCurrency] = useState('USD');
   const [quote, setQuote] = useState(null);
   const [fxError, setFxError] = useState('');
   const [fxLoading, setFxLoading] = useState(true);
+  const [coupleSettings, setCoupleSettings] = useState(() =>
+    normalizedCoupleAllocations(tripData?.budget?.coupleAllocations));
+  const [coupleDirty, setCoupleDirty] = useState(false);
+  const [coupleSaving, setCoupleSaving] = useState(false);
+  const [coupleNotice, setCoupleNotice] = useState('');
+  const [coupleError, setCoupleError] = useState('');
+  useEffect(() => {
+    if (!coupleDirty) setCoupleSettings(
+      normalizedCoupleAllocations(tripData?.budget?.coupleAllocations));
+  }, [tripData?.budget?.coupleAllocations, coupleDirty]);
+  const setCoupleField = (category, field, value) => {
+    setCoupleSettings(previous => ({
+      ...previous, [category]: { ...previous[category], [field]: value }
+    }));
+    setCoupleDirty(true); setCoupleNotice(''); setCoupleError('');
+  };
+  const saveCoupleSettings = async () => {
+    if (!onSaveCoupleAllocations || coupleSaving) return;
+    setCoupleError(''); setCoupleNotice('');
+    try {
+      const validated = validateCoupleAllocations(coupleSettings);
+      setCoupleSaving(true);
+      await onSaveCoupleAllocations(validated);
+      setCoupleDirty(false);
+      setCoupleNotice('Allocation settings saved. The estimated share uses the current category estimates.');
+    } catch (err) {
+      setCoupleError(err.message || 'Could not save the allocation settings.');
+    } finally {
+      setCoupleSaving(false);
+    }
+  };
+
 
   const refreshQuote = async () => {
     setFxLoading(true);
@@ -53,6 +86,22 @@ export default function Budget({ tripData }) {
     return result === null ? 'Exchange rate unavailable' : formatMoney(result, currency);
   };
   const convertedEstimate = (amount) => convertPlanningEstimate(amount, currency, quote);
+  const coupleReport = useMemo(() =>
+    calculateCoupleEstimate(budget, coupleSettings), [budget, coupleSettings]);
+  const showCoupleAmount = amount => {
+    if (amount === null || amount === undefined) return 'TBD';
+    const value = currentDisplay(amount, currency, quote);
+    return value == null ? 'Exchange rate unavailable' : formatMoney(value, currency);
+  };
+  const showCoupleRange = (row) => {
+    if (row.missing) return 'TBD';
+    if (row.excluded) return 'Excluded';
+    const low = showCoupleAmount(row.minimum);
+    if (row.openEnded) return low + '+';
+    return row.maximum != null && Math.abs(row.maximum - row.minimum) > 0.009
+      ? low + ' – ' + showCoupleAmount(row.maximum) : low;
+  };
+
   const pendingCount = report.issues.filter(x => x.state === 'pending').length;
   const invalidCount = report.issues.filter(x => x.state === 'invalid').length;
   const missingCount = report.issues.filter(x => x.state === 'rate_missing').length;
@@ -138,19 +187,89 @@ export default function Budget({ tripData }) {
 
       <section className="budget-section">
         <h3>Michelle &amp; Gilad share</h3>
+        <p className="budget-note">Live planning estimate from the current categories above.
+          Initial assumptions: two of five travelers for per-person expenses and one of two
+          rooms for hotels. Adjust these allocations to reflect the actual itinerary.
+          Shared family transport and Other are excluded unless assigned explicitly.</p>
+        <div className="couple-budget-breakdown">
+          {coupleReport.rows.map(row => {
+            const cat = COUPLE_CATEGORIES.find(c => c.key === row.key);
+            const setting = coupleSettings[row.key];
+            return <div className="couple-category" key={row.key}>
+              <div className="budget-row">
+                <span>{row.label}</span>
+                <span>{showCoupleRange(row)}</span>
+              </div>
+              <p className="budget-note">
+                Current category: {convertedEstimate(row.original)}
+                {row.mode === 'ratio' ? ' · ' + setting.units + ' of ' + setting.totalUnits + ' units'
+                  : row.mode === 'exclude' ? ' · excluded' : ' · explicit USD amount'}
+                {row.missing ? ' · enter an estimate above or a fixed allocation below' : ''}
+              </p>
+              {userRole === 'edit' && <div className="couple-allocation-editor">
+                <label>Allocation
+                  <select aria-label={row.label + ' allocation method'} value={setting.mode}
+                    onChange={e => setCoupleField(row.key, 'mode', e.target.value)}>
+                    <option value="ratio">Share of current category</option>
+                    <option value="fixed">Specific USD amount</option>
+                    <option value="exclude">Exclude / not allocated</option>
+                  </select>
+                </label>
+                {setting.mode === 'ratio' && <>
+                  <label>Their units
+                    <input type="number" min="0" max="1000" step="any" value={setting.units}
+                      aria-label={row.label + ' their units'}
+                      onChange={e => setCoupleField(row.key, 'units', e.target.value)}/>
+                  </label>
+                  <label>Total units
+                    <input type="number" min="0.01" max="1000" step="any" value={setting.totalUnits}
+                      aria-label={row.label + ' total units'}
+                      onChange={e => setCoupleField(row.key, 'totalUnits', e.target.value)}/>
+                  </label>
+                </>}
+                {setting.mode === 'fixed' && <label>Their amount (USD)
+                  <input type="number" min="0" step="0.01" value={setting.fixedUsd}
+                    aria-label={row.label + ' fixed amount USD'}
+                    onChange={e => setCoupleField(row.key, 'fixedUsd', e.target.value)}/>
+                </label>}
+                <p className="budget-note">{cat.description}</p>
+              </div>}
+            </div>;
+          })}
+        </div>
+        {userRole === 'edit' && <div className="couple-save">
+          <button type="button" disabled={!coupleDirty || coupleSaving}
+            onClick={saveCoupleSettings}>
+            {coupleSaving ? 'Saving…' : 'Save allocation settings'}
+          </button>
+          <button type="button" disabled={!coupleDirty || coupleSaving}
+            onClick={() => {
+              setCoupleSettings(normalizedCoupleAllocations(budget.coupleAllocations));
+              setCoupleDirty(false); setCoupleError(''); setCoupleNotice('');
+            }}>Discard edits</button>
+          {coupleDirty && <span>Unsaved allocation changes</span>}
+          {coupleError && <p role="alert">{coupleError}</p>}
+          {coupleNotice && <p role="status">{coupleNotice}</p>}
+        </div>}
         <div className="budget-table">
           <div className="budget-row">
             <span>Estimated share</span>
-            <span>{convertedEstimate(budget.daughterShare)}</span>
+            <span>{coupleReport.incomplete ? 'TBD · missing category estimates'
+              : coupleReport.openEnded ? showCoupleAmount(coupleReport.minimum) + '+'
+                : coupleReport.maximum != null &&
+                  Math.abs(coupleReport.maximum - coupleReport.minimum) > 0.009
+                  ? showCoupleAmount(coupleReport.minimum) + ' – ' +
+                    showCoupleAmount(coupleReport.maximum)
+                  : showCoupleAmount(coupleReport.minimum)}</span>
           </div>
           <div className="budget-row">
             <span>Actual share</span>
             <span>TBD</span>
           </div>
         </div>
-        <p className="budget-note">Actual share will be calculated once expenses are
-          explicitly allocated to Michelle &amp; Gilad. It is not inferred from
-          the total trip cost.</p>
+        <p className="budget-note">The estimate updates when the planning categories or allocations
+          change. Actual share remains TBD until confirmed expenses are explicitly
+          assigned to Michelle &amp; Gilad. Neither value duplicates the tracked total.</p>
       </section>
     </div>
   );
