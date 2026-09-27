@@ -138,12 +138,19 @@ export default function Budget({ tripData }) {
 
       <section className="budget-section">
         <h3>Michelle &amp; Gilad share</h3>
-        <p className="budget-note">Original planning estimate. Actual share is pending an explicit allocation per booking. Detailed cost-sharing
-          rules for new tracked expenses have not been defined.</p>
-        <div className="budget-row">
-          <span>Personal-cost estimate</span>
-          <span>{convertedEstimate(budget.daughterShare)}</span>
+        <div className="budget-table">
+          <div className="budget-row">
+            <span>Estimated share</span>
+            <span>{convertedEstimate(budget.daughterShare)}</span>
+          </div>
+          <div className="budget-row">
+            <span>Actual share</span>
+            <span>TBD</span>
+          </div>
         </div>
+        <p className="budget-note">Actual share will be calculated once expenses are
+          explicitly allocated to Michelle &amp; Gilad. It is not inferred from
+          the total trip cost.</p>
       </section>
     </div>
   );
