@@ -140,3 +140,21 @@
 .budget-issues summary { margin-top: 8px; cursor: pointer; font-weight: 600; }
 .budget-issues ul { padding-left: 20px; margin: 7px 0 0; }
 .budget-issues li { margin: 4px 0; }
+
+/* Explicit, auditable couple-share allocation controls. */
+.couple-budget-breakdown { border: 1px solid #e3e8f1; border-radius: 10px; overflow: hidden; margin: 14px 0; }
+.couple-category { padding: 11px 14px; border-bottom: 1px solid #e8edf4; }
+.couple-category:last-child { border-bottom: none; }
+.couple-category .budget-row { padding: 3px 0; }
+.couple-category .budget-note { line-height: 1.45; margin-top: 5px; }
+.couple-allocation-editor { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 11px; margin-top: 10px; background: #f4f7ff; border-radius: 8px; }
+.couple-allocation-editor label { display: flex; flex-direction: column; gap: 4px; min-width: 130px; font-size: 12px; color: #38455f; }
+.couple-allocation-editor select, .couple-allocation-editor input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccd6e8; border-radius: 6px; font-size: 13px; background: #fff; }
+.couple-allocation-editor .budget-note { flex: 1 1 100%; margin-top: 0; }
+.couple-save { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 12px 0 16px; }
+.couple-save button { border-radius: 6px; padding: 9px 13px; border: 1px solid #5b76ca; color: #253d8c; background: #f1f5ff; cursor: pointer; }
+.couple-save button:first-child { background: #4a65cb; color: white; }
+.couple-save button:disabled { opacity: 0.55; cursor: not-allowed; }
+.couple-save p { flex-basis: 100%; margin: 0; font-size: 13px; }
+.couple-save p[role="alert"] { color: #b02236; }
+.couple-save p[role="status"] { color: #176142; }
