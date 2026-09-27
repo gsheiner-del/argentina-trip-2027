@@ -137,7 +137,7 @@ export default function App() {
   const moveStay = async (hotel, targetDestinationId) => {
     editorOnly();
     const source = hotel?.sourcePath || '';
-    if (!/^trip\\/(?:destinations\\/\\d+\\/hotels\\/\\d+|hotelBookings\\/[A-Za-z0-9_-]+)$/.test(source))
+    if (!/^trip\/(?:destinations\/\d+\/hotels\/\d+|hotelBookings\/[A-Za-z0-9_-]+)$/.test(source))
       throw new Error('Unsupported booking record. Refresh and try again.');
     const targetIndex = tripData.destinations.findIndex(d => String(d.id) === String(targetDestinationId));
     const target = tripData.destinations[targetIndex];
@@ -151,7 +151,7 @@ export default function App() {
       : tripData.hotelBookings?.[source.split('/')[2]];
     if (!current || String(current.id) !== String(hotel.originalId || hotel.id))
       throw new Error('Booking has changed. Reload before moving.');
-    const sourceIndex = source.match(/^trip\\/destinations\\/(\\d+)\\/hotels\\//);
+    const sourceIndex = source.match(/^trip\/destinations\/(\d+)\/hotels\//);
     if (sourceIndex && Number(sourceIndex[1]) === targetIndex)
       throw new Error('Booking is already in the correct visit.');
     const targetHotels = target.hotels || [];
@@ -173,7 +173,7 @@ export default function App() {
   const setStayArchived = async (hotel, archived) => {
     editorOnly();
     const path = hotel?.sourcePath || '';
-    if (!/^trip\\/(?:destinations\\/\\d+\\/hotels\\/\\d+|hotelBookings\\/[A-Za-z0-9_-]+)$/.test(path))
+    if (!/^trip\/(?:destinations\/\d+\/hotels\/\d+|hotelBookings\/[A-Za-z0-9_-]+)$/.test(path))
       throw new Error('Unsupported hotel path.');
     const live = path.split('/')[1] === 'destinations'
       ? tripData.destinations[Number(path.split('/')[2])]?.hotels?.[Number(path.split('/')[4])]
