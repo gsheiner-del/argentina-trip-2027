@@ -1,4 +1,4 @@
-import { hotelCity } from './hotels.js';
+import { hotelCity, groupHotelOptions } from './hotels.js';
 
 export const CATEGORIES = ['hotel', 'flight', 'activity'];
 const norm = v => String(v || '').normalize('NFD')
@@ -119,6 +119,19 @@ export function existingRecords(trip, category, destinationId) {
     }
   }
   return rows;
+}
+
+/**
+ * The preferred-stay selector and StayOptions MUST use identical grouping.
+ * Hidden archived stays or bookings belonging to a different visit must not
+ * change the group key, otherwise Firebase saves a preference under a key the
+ * displayed group never reads.
+ */
+export function activeStayGroups(trip, destinationId) {
+  const dest = (trip?.destinations || []).find(d => String(d.id) === String(destinationId));
+  if (!dest) return [];
+  return groupHotelOptions(existingRecords(trip, 'hotel', destinationId)
+    .filter(row => row.status !== 'superseded' && !isMisplacedStay(trip, dest, row)));
 }
 
 export function likelyMatches(trip, category, destinationId, draft) {
