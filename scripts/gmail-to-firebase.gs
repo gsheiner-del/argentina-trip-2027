@@ -348,6 +348,7 @@ function extract_(message) {
     subject: subject.slice(0, 180),
     title: title.slice(0, 140),
     category,
+    sourceProvider: airbnb ? 'airbnb' : '',
     place: city_(subject, body),
     checkIn: extracted.checkIn || '',
     checkOut: extracted.checkOut || '',
@@ -465,8 +466,9 @@ function allLabelMessages_(label) {
 function recoverAirbnbReviewFields_(existing, parsed) {
   const updates = {};
   if (!existing || !parsed || parsed.category !== 'hotel') return updates;
-  const looksAirbnb = /airbnb/i.test(String(existing.subject || '') + ' ' +
-    String(existing.title || '') + ' ' + String(parsed.subject || ''));
+  const looksAirbnb = parsed.sourceProvider === 'airbnb' ||
+    existing.sourceProvider === 'airbnb' ||
+    /airbnb/i.test(String(existing.subject || '') + ' ' + String(existing.title || ''));
   if (!looksAirbnb) return updates;
   // Old importers could stage forwarded Airbnb confirmations as "other".
   // Reclassify only rows that have NOT been approved or dismissed so no prior
@@ -483,7 +485,7 @@ function recoverAirbnbReviewFields_(existing, parsed) {
 
 function missingFields_(existing, parsed) {
   const allowed = ['checkIn', 'checkOut', 'date', 'number', 'airline', 'from', 'to',
-    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline', 'flightDetailsSource'];
+    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline', 'flightDetailsSource', 'sourceProvider'];
   const updates = {};
   for (const key of allowed) {
     const empty = existing[key] == null || existing[key] === '' ||
