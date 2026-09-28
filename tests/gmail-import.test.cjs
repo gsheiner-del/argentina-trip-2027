@@ -343,3 +343,41 @@ test('Forwarded Airbnb HTML itinerary survives missing plain-text destination', 
   assert.equal(result.checkIn, '2027-03-12');
   assert.equal(result.checkOut, '2027-03-16');
 });
+
+
+test('old generic Airbnb review row is safely reclassified before approval', () => {
+  const old = {
+    status: 'pending',
+    category: 'other',
+    subject: 'Fwd: Confirmed: Your reservation for 12–16 Mar',
+    title: 'Fwd: Confirmed: Your reservation for 12–16 Mar',
+    place: ''
+  };
+  const parsed = {
+    category: 'hotel',
+    subject: old.subject,
+    title: "Mutisia's Home",
+    place: 'El Chaltén'
+  };
+  const recovered = recoverAirbnbReviewFields_(old, parsed);
+  assert.deepEqual(recovered, {
+    category: 'hotel',
+    title: "Mutisia's Home",
+    place: 'El Chaltén'
+  });
+});
+
+test('Airbnb recovery never rewrites approved or dismissed decisions', () => {
+  const parsed = {
+    category: 'hotel',
+    subject: 'Fwd: Confirmed: Your reservation for 12–16 Mar',
+    title: "Mutisia's Home",
+    place: 'El Chaltén'
+  };
+  assert.deepEqual(recoverAirbnbReviewFields_({
+    status: 'approved', category: 'other', subject: parsed.subject
+  }, parsed), {});
+  assert.deepEqual(recoverAirbnbReviewFields_({
+    status: 'rejected', category: 'other', subject: parsed.subject
+  }, parsed), {});
+});
