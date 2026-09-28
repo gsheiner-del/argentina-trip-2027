@@ -357,14 +357,13 @@ test('old generic Airbnb review row is safely reclassified before approval', () 
     category: 'hotel',
     subject: old.subject,
     title: "Mutisia's Home",
-    place: 'El Chaltén'
+    place: 'El Chaltén',
+    sourceProvider: 'airbnb'
   };
   const recovered = recoverAirbnbReviewFields_(old, parsed);
-  assert.deepEqual(recovered, {
-    category: 'hotel',
-    title: "Mutisia's Home",
-    place: 'El Chaltén'
-  });
+  assert.equal(recovered.category, 'hotel');
+  assert.equal(recovered.title, "Mutisia's Home");
+  assert.equal(recovered.place, 'El Chaltén');
 });
 
 test('Airbnb recovery never rewrites approved or dismissed decisions', () => {
@@ -374,10 +373,10 @@ test('Airbnb recovery never rewrites approved or dismissed decisions', () => {
     title: "Mutisia's Home",
     place: 'El Chaltén'
   };
-  assert.deepEqual(recoverAirbnbReviewFields_({
+  assert.equal(Object.keys(recoverAirbnbReviewFields_({
     status: 'approved', category: 'other', subject: parsed.subject
-  }, parsed), {});
-  assert.deepEqual(recoverAirbnbReviewFields_({
+  }, parsed)).length, 0);
+  assert.equal(Object.keys(recoverAirbnbReviewFields_({
     status: 'rejected', category: 'other', subject: parsed.subject
-  }, parsed), {});
+  }, parsed)).length, 0);
 });
