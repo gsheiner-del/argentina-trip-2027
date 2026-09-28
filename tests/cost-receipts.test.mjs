@@ -20,7 +20,7 @@ test('receipt storage path is scoped by destination/category and does not expose
   const path = receiptStoragePath('El Chaltén', 'Meals & Dining',
     { type: 'image/jpeg', name: 'personal-card-last4-1234.jpg' }, 12345, 'abc123');
   assert.equal(path, 'receipts/el-chalten/meals-dining/12345-abc123.jpg');
-  assert.doesNotMatch(path, /1234/);
+  assert.doesNotMatch(path, /personal-card|last4/);
 });
 
 test('cost editor exposes payer and camera/upload receipt controls', () => {
