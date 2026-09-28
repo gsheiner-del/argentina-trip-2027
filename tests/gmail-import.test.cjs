@@ -380,3 +380,15 @@ test('Airbnb recovery never rewrites approved or dismissed decisions', () => {
     status: 'rejected', category: 'other', subject: parsed.subject
   }, parsed)).length, 0);
 });
+
+
+test('Mutisia one-time recovery is constrained to exact Airbnb stay and never auto-approves', () => {
+  assert.match(script, /function restoreMutisiaAirbnbReview\(\)/);
+  assert.match(script, /sourceProvider !== 'airbnb'/);
+  assert.match(script, /parsed\.checkIn !== '2027-03-12'/);
+  assert.match(script, /parsed\.checkOut !== '2027-03-16'/);
+  assert.match(script, /mutisia/i);
+  assert.match(script, /status: 'pending'/);
+  assert.doesNotMatch(script.slice(script.indexOf('function restoreMutisiaAirbnbReview'),
+    script.indexOf('function sendCancellationReminders')), /prepareApproval|trip\/destinations/);
+});
