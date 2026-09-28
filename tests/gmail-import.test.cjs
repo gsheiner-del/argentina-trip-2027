@@ -14,10 +14,10 @@ const sandbox = {
   }
 };
 vm.createContext(sandbox);
-vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_ };', sandbox, {
+vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_ };', sandbox, {
   filename: 'gmail-to-firebase.gs'
 });
-const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_ } = sandbox.testApi;
+const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_ } = sandbox.testApi;
 
 function email(subject, body, id = 'testid', html = '') {
   return {
