@@ -40,6 +40,25 @@ function destinationPoint(destination) {
   return known?.point || null;
 }
 
+function pointKey(point) {
+  return point ? point.map(value => Number(value).toFixed(5)).join(',') : '';
+}
+
+export function groupStopsByPoint(stops = []) {
+  const groups = [];
+  const byPoint = new Map();
+  for (const stop of stops) {
+    const key = pointKey(stop.point);
+    if (!byPoint.has(key)) {
+      const group = { point: stop.point, visits: [] };
+      byPoint.set(key, group);
+      groups.push(group);
+    }
+    byPoint.get(key).visits.push(stop);
+  }
+  return groups;
+}
+
 function markerIcon(emoji, selected = false) {
   const text = String(emoji || '📍').replace(/[<>&"']/g, '');
   return divIcon({
@@ -66,6 +85,7 @@ export default function ArgentinaMap({ destinations = [], onOpenDestination }) {
     .map((destination, order) => ({ destination, order, point: destinationPoint(destination) }))
     .filter(({ point }) => point), [destinations]);
   const bounds = useMemo(() => stops.map(({ point }) => point), [stops]);
+  const markerGroups = useMemo(() => groupStopsByPoint(stops), [stops]);
   const missing = destinations.filter((destination) => !destinationPoint(destination));
 
   return (
@@ -75,7 +95,7 @@ export default function ArgentinaMap({ destinations = [], onOpenDestination }) {
           <h2>Interactive trip map</h2>
           <p>Stops come from your current trip data. Route lines are illustrative, not driving or flight directions.</p>
         </div>
-        <span className="map-count">{stops.length} mapped stops</span>
+        <span className="map-count">{markerGroups.length} map locations · {stops.length} trip visits</span>
       </div>
       <div className="map-layout">
         <div className="map-canvas">
@@ -89,20 +109,51 @@ export default function ArgentinaMap({ destinations = [], onOpenDestination }) {
             <FitStops points={bounds} />
             {bounds.length > 1 &&
               <Polyline positions={bounds} pathOptions={{ color: '#386aa7', weight: 3, dashArray: '6 8', opacity: 0.75 }} />}
-            {stops.map(({ destination, order, point }) => (
-              <Marker key={destination.id || order} position={point}
-                icon={markerIcon(destination.emoji, selectedId === destination.id)}
-                eventHandlers={{ click: () => setSelectedId(destination.id) }}>
-                <Popup>
-                  <strong>{order + 1}. {destination.name}</strong><br />
-                  {destination.dates || 'Dates not yet selected'}<br />
-                  {destination.description && <span>{destination.description}<br /></span>}
-                  {destination.hotels?.length > 0 && <span>{destination.hotels.length} accommodation option(s)<br /></span>}
-                  <button type="button" className="map-popup-button"
-                    onClick={() => onOpenDestination?.(destination.id)}>View destination</button>
-                </Popup>
-              </Marker>
-            ))}
+            {markerGroups.map((group, groupIndex) => {
+              const activeVisit = group.visits.find(({ destination }) => selectedId === destination.id);
+              const iconVisit = activeVisit || group.visits[0];
+              return (
+                <Marker key={pointKey(group.point) || groupIndex} position={group.point}
+                  icon={markerIcon(iconVisit.destination.emoji, Boolean(activeVisit))}
+                  eventHandlers={{ click: () => {
+                    if (group.visits.length === 1) setSelectedId(group.visits[0].destination.id);
+                  } }}>
+                  <Popup>
+                    {group.visits.length > 1
+                      ? <div className="map-multi-visit-popup">
+                          <strong>{iconVisit.destination.name.replace(/\s*\((?:arrival|return|departure)\)\s*$/i, '')}</strong>
+                          <small>{group.visits.length} separate trip visits</small>
+                          {group.visits.map(({ destination, order }) => (
+                            <div className="map-visit-option" key={destination.id || order}>
+                              <div>
+                                <strong>{order + 1}. {destination.name}</strong><br />
+                                <span>{destination.dates || 'Dates not yet selected'}</span>
+                              </div>
+                              <button type="button" className="map-popup-button"
+                                onClick={() => {
+                                  setSelectedId(destination.id);
+                                  onOpenDestination?.(destination.id);
+                                }}>View {/(arrival)/i.test(destination.name) ? 'Arrival'
+                                  : /(return|departure)/i.test(destination.name) ? 'Return'
+                                  : 'destination'}</button>
+                            </div>
+                          ))}
+                        </div>
+                      : (() => {
+                          const { destination, order } = group.visits[0];
+                          return <>
+                            <strong>{order + 1}. {destination.name}</strong><br />
+                            {destination.dates || 'Dates not yet selected'}<br />
+                            {destination.description && <span>{destination.description}<br /></span>}
+                            {destination.hotels?.length > 0 && <span>{destination.hotels.length} accommodation option(s)<br /></span>}
+                            <button type="button" className="map-popup-button"
+                              onClick={() => onOpenDestination?.(destination.id)}>View destination</button>
+                          </>;
+                        })()}
+                  </Popup>
+                </Marker>
+              );
+            })}
           </MapContainer>
         </div>
         <aside className="map-stop-list" aria-label="Trip stops">
