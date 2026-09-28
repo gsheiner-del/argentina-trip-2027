@@ -639,6 +639,62 @@ function rescanAllTripMail() {
   backfillGmailMetadata();
 }
 
+/**
+ * Explicit one-time repair for the forwarded Airbnb confirmation that was
+ * received on 22 Sep 2026 for Mutisia's Home in El Chaltén, 12–16 Mar 2027.
+ * This is intentionally NOT part of normal sync because normal sync preserves
+ * prior review decisions. Run manually only when the editor wants this exact
+ * confirmation returned to Pending for review.
+ *
+ * Safety:
+ * - Finds the message by parsed provider/place/dates/title, not by booking code.
+ * - Requires exactly one matching Gmail message under Argentina2027.
+ * - Does not approve or publish anything to trip/destinations.
+ * - Preserves notes/manual fields that are not part of the parsed booking.
+ */
+function restoreMutisiaAirbnbReview() {
+  checkAccount_();
+  const label = GmailApp.getUserLabelByName(TRIP_CONFIG.label);
+  if (!label) throw new Error('Gmail label Argentina2027 was not found.');
+  const matches = [];
+  for (const message of allLabelMessages_(label)) {
+    const parsed = extract_(message);
+    if (!parsed || parsed.sourceProvider !== 'airbnb' || parsed.category !== 'hotel') continue;
+    if (clean_(parsed.place) !== clean_('El Chaltén')) continue;
+    if (parsed.checkIn !== '2027-03-12' || parsed.checkOut !== '2027-03-16') continue;
+    if (!/mutisia/i.test(parsed.title || '')) continue;
+    matches.push({ message, parsed });
+  }
+  if (matches.length !== 1)
+    throw new Error('Expected exactly one Mutisia Airbnb confirmation, found ' + matches.length + '. Nothing was changed.');
+
+  const { message, parsed } = matches[0];
+  const id = 'm_' + message.getId();
+  const existing = firebase_('get', TRIP_CONFIG.queuePath + '/' + id) || {};
+  const patch = {
+    status: 'pending',
+    category: 'hotel',
+    sourceProvider: 'airbnb',
+    title: parsed.title,
+    place: parsed.place,
+    checkIn: parsed.checkIn,
+    checkOut: parsed.checkOut,
+    receivedAt: parsed.receivedAt,
+    gmailUrl: parsed.gmailUrl,
+    cancellationFlag: Boolean(parsed.cancellationFlag),
+    bookingGroup: parsed.bookingGroup
+  };
+  for (const key of ['address','phone','propertyEmail','confirmationNumber',
+    'bookingLink','cancellationDeadline','price','currency']) {
+    if (parsed[key] !== undefined && parsed[key] !== null && parsed[key] !== '')
+      patch[key] = parsed[key];
+    else if (existing[key] !== undefined) patch[key] = existing[key];
+  }
+  if (existing.notes !== undefined) patch.notes = existing.notes;
+  firebase_('patch', TRIP_CONFIG.queuePath + '/' + id, patch);
+  Logger.log('Mutisia Airbnb confirmation restored to Pending for manual review. No Destination record was created.');
+}
+
 /** Install a daily time trigger for this function separately from Gmail sync.
  * Requires Apps Script MailApp authorization. The exact local deadline must
  * have been reviewed and saved in YYYY-MM-DDTHH:mm format. */
