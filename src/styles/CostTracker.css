@@ -148,3 +148,60 @@
   .receipt-editor, .cost-fx-info, .cost-editor-actions { grid-column: 1; }
   .receipt-editor img { max-width: 100%; }
 }
+
+
+/* Prevent the Costs editor from widening its Destination card on phones. */
+.cost-tracker,
+.cost-category,
+.cost-items,
+.cost-item,
+.cost-editor,
+.receipt-editor {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.cost-explainer {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .cost-tracker {
+    gap: 16px;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .cost-category {
+    width: 100%;
+    padding: 14px 12px;
+    border-left-width: 3px;
+  }
+
+  .cost-editor {
+    width: 100%;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .cost-editor input,
+  .cost-editor select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .receipt-picker {
+    width: 100%;
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .cost-editor-actions {
+    flex-wrap: wrap;
+  }
+
+  .cost-editor-actions button {
+    flex: 1 1 120px;
+  }
+}
