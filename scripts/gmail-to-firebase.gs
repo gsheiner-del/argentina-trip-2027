@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-26-airbnb-review-v10';
+const IMPORTER_VERSION = '2026-09-28-airbnb-recovery-v11';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -348,6 +348,7 @@ function extract_(message) {
     subject: subject.slice(0, 180),
     title: title.slice(0, 140),
     category,
+    sourceProvider: airbnb ? 'airbnb' : '',
     place: city_(subject, body),
     checkIn: extracted.checkIn || '',
     checkOut: extracted.checkOut || '',
@@ -462,9 +463,29 @@ function allLabelMessages_(label) {
   return messages;
 }
 
+function recoverAirbnbReviewFields_(existing, parsed) {
+  const updates = {};
+  if (!existing || !parsed || parsed.category !== 'hotel') return updates;
+  const looksAirbnb = parsed.sourceProvider === 'airbnb' ||
+    existing.sourceProvider === 'airbnb' ||
+    /airbnb/i.test(String(existing.subject || '') + ' ' + String(existing.title || ''));
+  if (!looksAirbnb) return updates;
+  // Old importers could stage forwarded Airbnb confirmations as "other".
+  // Reclassify only rows that have NOT been approved or dismissed so no prior
+  // review decision is silently rewritten.
+  const status = existing.status || 'pending';
+  if (!['pending', 'outside_itinerary'].includes(status)) return updates;
+  if (!existing.category || existing.category === 'other') updates.category = 'hotel';
+  const oldTitle = String(existing.title || '');
+  const genericTitle = !oldTitle || /^(?:fwd:\s*)?confirmed: your reservation|airbnb reservation/i.test(oldTitle);
+  if (genericTitle && parsed.title) updates.title = parsed.title;
+  if ((!existing.place || existing.place === '') && parsed.place) updates.place = parsed.place;
+  return updates;
+}
+
 function missingFields_(existing, parsed) {
   const allowed = ['checkIn', 'checkOut', 'date', 'number', 'airline', 'from', 'to',
-    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline', 'flightDetailsSource'];
+    'departure', 'arrival', 'arrivalDate', 'segments', 'time', 'meetingPoint', 'price', 'currency', 'place', 'address', 'phone', 'propertyEmail', 'confirmationNumber', 'bookingLink', 'cancellationDeadline', 'flightDetailsSource', 'sourceProvider'];
   const updates = {};
   for (const key of allowed) {
     const empty = existing[key] == null || existing[key] === '' ||
@@ -592,6 +613,8 @@ function backfillGmailMetadata() {
     const parsed = linkedFlightDetails_(message, extract_(message), donors);
     if (!parsed) continue;
     const missing = missingFields_(existing[id], parsed);
+    const recovered = recoverAirbnbReviewFields_(existing[id], parsed);
+    Object.assign(missing, recovered);
     for (const [key, value] of Object.entries(missing)) {
       changes[id + '/' + key] = value;
       existing[id][key] = value;
@@ -696,6 +719,7 @@ function diagnoseGmailSync() {
     airbnbLabelMessages: 0,
     airbnbRecognized: 0,
     airbnbAlreadyStaged: 0,
+    airbnbNeedsReclassification: 0,
     flightBodySources: { plain: 0, html: 0, neither: 0 },
     firebaseIdsMatched: 0,
     rowsWithMissingFields: 0,
@@ -742,7 +766,12 @@ function diagnoseGmailSync() {
         (msg.getPlainBody() || '').slice(0, 900));
       if (isAirbnb) counters.airbnbLabelMessages++;
       const present = current[id];
-      if (isAirbnb && present) counters.airbnbAlreadyStaged++;
+      if (isAirbnb && present) {
+        counters.airbnbAlreadyStaged++;
+        const parsedForRecovery = extract_(msg);
+        if (parsedForRecovery && Object.keys(recoverAirbnbReviewFields_(present, parsedForRecovery)).length)
+          counters.airbnbNeedsReclassification++;
+      }
       if (present) counters.firebaseIdsMatched++;
       let parsed;
       try { parsed = linkedFlightDetails_(msg, extract_(msg), donors); } catch {

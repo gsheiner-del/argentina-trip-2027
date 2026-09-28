@@ -14,10 +14,10 @@ const sandbox = {
   }
 };
 vm.createContext(sandbox);
-vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_ };', sandbox, {
+vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_ };', sandbox, {
   filename: 'gmail-to-firebase.gs'
 });
-const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_ } = sandbox.testApi;
+const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_ } = sandbox.testApi;
 
 function email(subject, body, id = 'testid', html = '') {
   return {
@@ -342,4 +342,41 @@ test('Forwarded Airbnb HTML itinerary survives missing plain-text destination', 
   assert.equal(result.category, 'hotel');
   assert.equal(result.checkIn, '2027-03-12');
   assert.equal(result.checkOut, '2027-03-16');
+});
+
+
+test('old generic Airbnb review row is safely reclassified before approval', () => {
+  const old = {
+    status: 'pending',
+    category: 'other',
+    subject: 'Fwd: Confirmed: Your reservation for 12–16 Mar',
+    title: 'Fwd: Confirmed: Your reservation for 12–16 Mar',
+    place: ''
+  };
+  const parsed = {
+    category: 'hotel',
+    subject: old.subject,
+    title: "Mutisia's Home",
+    place: 'El Chaltén',
+    sourceProvider: 'airbnb'
+  };
+  const recovered = recoverAirbnbReviewFields_(old, parsed);
+  assert.equal(recovered.category, 'hotel');
+  assert.equal(recovered.title, "Mutisia's Home");
+  assert.equal(recovered.place, 'El Chaltén');
+});
+
+test('Airbnb recovery never rewrites approved or dismissed decisions', () => {
+  const parsed = {
+    category: 'hotel',
+    subject: 'Fwd: Confirmed: Your reservation for 12–16 Mar',
+    title: "Mutisia's Home",
+    place: 'El Chaltén'
+  };
+  assert.equal(Object.keys(recoverAirbnbReviewFields_({
+    status: 'approved', category: 'other', subject: parsed.subject
+  }, parsed)).length, 0);
+  assert.equal(Object.keys(recoverAirbnbReviewFields_({
+    status: 'rejected', category: 'other', subject: parsed.subject
+  }, parsed)).length, 0);
 });
