@@ -18,3 +18,10 @@
 .map-popup-button { margin-top: 8px; padding: 7px 10px; background: #275e96; border: 0; border-radius: 6px; color: white; cursor: pointer; }
 .map-unmapped { padding: 10px; background: #fff7e6; border-radius: 8px; font-size: 12px; line-height: 1.5; color: #8b5a0f; }
 @media (max-width: 740px) { .map-layout { grid-template-columns: 1fr; } .map-heading { flex-direction: column; } .trip-leaflet-map { min-height: 360px; height: 55vh; } .map-stop-list { max-height: 280px; } }
+
+.map-multi-visit-popup { min-width: 235px; }
+.map-multi-visit-popup > small { display: block; margin: 3px 0 8px; color: #64748b; }
+.map-visit-option { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #e6edf5; }
+.map-visit-option:first-of-type { border-top: 0; }
+.map-visit-option span { color: #64748b; font-size: 12px; }
+.map-visit-option .map-popup-button { margin-top: 0; white-space: nowrap; }
