@@ -20,7 +20,8 @@ export function validateReceiptFile(file) {
 }
 
 function safeSegment(value) {
-  return String(value || 'unknown').toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
+  return String(value || 'unknown').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '').slice(0, 60) || 'unknown';
 }
 
