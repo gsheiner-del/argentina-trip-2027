@@ -122,12 +122,25 @@ export default function App() {
     });
   };
 
-  const handleRemoveFlight = async (destinationId, flightIndex) => {
+  const handleArchiveFlight = async (destinationId, flightIndex, archived = true) => {
     if (userRole !== 'edit' || !Array.isArray(tripData?.destinations)) return;
     const destinationIndex = tripData.destinations.findIndex(d => String(d.id) === String(destinationId));
     const flight = tripData.destinations[destinationIndex]?.flights?.[flightIndex];
     if (destinationIndex < 0 || !flight) return;
-    await set(ref(database, `trip/destinations/${destinationIndex}/flights/${flightIndex}`), null);
+    const path = `trip/destinations/${destinationIndex}/flights/${flightIndex}`;
+    if (archived) {
+      await update(ref(database, path), {
+        previousStatus: flight.previousStatus || flight.status || 'planning',
+        status: 'superseded',
+        archivedAt: Date.now()
+      });
+    } else {
+      await update(ref(database, path), {
+        status: flight.previousStatus || 'planning',
+        previousStatus: null,
+        archivedAt: null
+      });
+    }
   };
 
 
@@ -365,7 +378,7 @@ export default function App() {
             destinations={destinations} selectedId={selectedDestination}
             onUpdateBooking={handleUpdateBooking}
             onConfirmFlight={handleConfirmFlight}
-            onRemoveFlight={handleRemoveFlight}
+            onArchiveFlight={handleArchiveFlight}
             onUpdateFlightReference={handleUpdateFlightReference}
             onUpdateCosts={handleUpdateCosts} userRole={userRole}
             onSelectPreferred={selectPreferred}
