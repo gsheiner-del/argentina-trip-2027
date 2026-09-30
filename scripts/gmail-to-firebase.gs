@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-28-airbnb-recovery-v11';
+const IMPORTER_VERSION = '2026-09-30-pdf-flight-import-v12';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -43,6 +43,7 @@ function category_(subject, body) {
     return 'hotel';
   if (/booking.+(?:hotel|apartment|apart|alojamiento)|confirmed at|booking canceled/.test(title)) return 'hotel';
   if (/flight|itinerary|e.ticket|el al|aerolineas|boarding/.test(title)) return 'flight';
+  if (/aerolineas argentinas|\bAR\s?\d{3,4}\b|partida\s*:/.test(text)) return 'flight';
   if (/transfer|rent.a.car|car rental|shuttle/.test(title)) return 'transport';
   if (/booking|apartment|hotel|stay|alojamiento|cabanas|apart/.test(text)) return 'hotel';
   return 'other';
@@ -146,7 +147,75 @@ function price_(body) {
   const value = Number(matched[2]);
   return Number.isFinite(value) && value >= 0 ? { price: value, currency } : {};
 }
+
+function pdfAttachmentText_(message) {
+  if (!message || typeof message.getAttachments !== 'function') return '';
+  const attachments = message.getAttachments({ includeInlineImages: false, includeAttachments: true }) || [];
+  const pdfs = attachments.filter(file =>
+    String(file.getContentType ? file.getContentType() : '').toLowerCase() === 'application/pdf');
+  if (!pdfs.length) return '';
+  if (typeof Drive === 'undefined' || !Drive.Files || typeof Drive.Files.create !== 'function') {
+    throw new Error('PDF itinerary found, but Advanced Drive service is not enabled in Apps Script.');
+  }
+  const chunks = [];
+  for (const attachment of pdfs.slice(0, 3)) {
+    let convertedId = '';
+    try {
+      const blob = attachment.copyBlob();
+      const converted = Drive.Files.create({
+        name: 'Argentina2027 temporary PDF extraction',
+        mimeType: 'application/vnd.google-apps.document'
+      }, blob, { ocrLanguage: 'es', fields: 'id' });
+      convertedId = converted.id;
+      const text = DocumentApp.openById(convertedId).getBody().getText();
+      if (text) chunks.push(text);
+    } finally {
+      if (convertedId) {
+        try { Drive.Files.remove(convertedId); } catch (_) {}
+      }
+    }
+  }
+  return chunks.join('\n');
+}
+
+function aerolineasPdfSegments_(text) {
+  const source = String(text || '');
+  if (!/aerolineas\s+argentinas/i.test(clean_(source))) return [];
+  const yearMatch = source.match(/\b(20\d{2})\b/);
+  if (!yearMatch) return [];
+  const year = yearMatch[1];
+  const blocks = source.split(/PARTIDA\s*:/i).slice(1);
+  const segments = [];
+  for (const block of blocks) {
+    const dateMatch = block.match(/^[^\n\r]*?\b(\d{1,2})\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]{3,12})\b/i);
+    const numberMatch = block.match(/\bAR\s*(\d{3,4})\b/i);
+    if (!dateMatch || !numberMatch) continue;
+    const date = parseDate_(dateMatch[1] + ' ' + dateMatch[2] + ' ' + year);
+    if (!date) continue;
+    const airportCodes = [...block.matchAll(/(?:^|\n)\s*(AEP|EZE|USH|FTE|BRC|MDZ|IGR|REL|PMY|COR|SCL|TLV)\s*(?:\n|$)/gi)]
+      .map(match => match[1].toUpperCase());
+    const route = [];
+    for (const code of airportCodes) if (!route.includes(code)) route.push(code);
+    if (route.length < 2) continue;
+    const departure = (block.match(/Sale\s+a\s+la\(s\)\s*:\s*(?:\r?\n|\s)+([0-2]?\d:[0-5]\d)/i) || [])[1] || '';
+    const arrival = (block.match(/Llega\s+a\s+la\(s\)\s*:\s*(?:\r?\n|\s)+([0-2]?\d:[0-5]\d)/i) || [])[1] || '';
+    if (!departure || !arrival) continue;
+    segments.push({
+      number: 'AR' + numberMatch[1],
+      from: route[0],
+      to: route[1],
+      date,
+      departure,
+      arrivalDate: date,
+      arrival
+    });
+  }
+  return segments;
+}
+
 function flightFields_(subject, body, html) {
+  const aerolineasPdf = aerolineasPdfSegments_(body);
+  if (aerolineasPdf.length) return { airline: 'Aerolíneas Argentinas', ...aerolineasPdf[0], segments: aerolineasPdf };
   const head = subject + '\n' + body.slice(0, 3500);
   const airline = /el al/i.test(head) ? 'EL AL' :
     /aerolineas argentinas|aerolíneas argentinas/i.test(head) ? 'Aerolíneas Argentinas' : '';
@@ -328,7 +397,21 @@ function extract_(message) {
     .replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ')
     .replace(/&amp;/gi, '&');
   const airbnb = /airbnb/i.test(subject + ' ' + plain.slice(0, 700) + ' ' + htmlText.slice(0, 700));
-  const body = airbnb ? plain + nl + htmlText : plain;
+  let body = airbnb ? plain + nl + htmlText : plain;
+  let pdfText = '';
+  const bodyLooksTripRelated = onlyTripMessage_(subject, body);
+  const bodyFlight = bodyLooksTripRelated ? flightFields_(subject, body, html) : null;
+  const needsPdf = !bodyLooksTripRelated ||
+    ((category_(subject, body) === 'flight' || category_(subject, body) === 'other') &&
+      !(bodyFlight && Array.isArray(bodyFlight.segments) && bodyFlight.segments.length));
+  if (needsPdf) {
+    try { pdfText = pdfAttachmentText_(message); } catch (error) {
+      // Surface setup failures in manual runs, but do not break messages whose
+      // normal body already contains usable trip data.
+      if (!bodyLooksTripRelated) throw error;
+    }
+    if (pdfText) body += nl + pdfText;
+  }
   if (!onlyTripMessage_(subject, body)) return null;
   const cancellationFlag = /booking cancelle?d|booking canceled|reservation (?:has been )?cancelled|reserva cancelada/i.test(
     subject + ' ' + body.slice(0, 500));
