@@ -4,11 +4,12 @@ import CostTracker from './CostTracker';
 import StayOptions from './StayOptions';
 import NearbyExplore from './NearbyExplore';
 
-export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onConfirmFlight, onArchiveFlight, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
+export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onConfirmFlight, onArchiveFlight, onUpdateFlightReference, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
   const [bookingLink, setBookingLink] = useState('');
+  const [bookingReference, setBookingReference] = useState('');
 
   // Selecting a pin on the map must change the currently displayed destination.
   useEffect(() => {
@@ -103,6 +104,7 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
                     <div><strong>{flight.from || 'Departure TBD'}</strong> → {flight.departure || 'Time TBD'}</div>
                     <div><strong>{flight.to || 'Arrival TBD'}</strong> → {flight.arrival || 'Time TBD'}</div>
                   </div>
+                  {flight.bookingReference && <p><strong>Booking reference:</strong> {flight.bookingReference}</p>}
                   {flight.notes && <p>{flight.notes}</p>}
                   {/^https:\/\//i.test(flight.bookingLink || '') && (
                     <div className="booking-link"><a href={flight.bookingLink}
@@ -110,7 +112,18 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
                   )}
                   {userRole === 'edit' && (
                     <div className="edit-booking">
-                      {editingBookingId === 'flight-' + idx ? (
+                      {editingBookingId === 'reference-' + idx ? (
+                        <div className="booking-input">
+                          <input type="text" placeholder="Booking reference"
+                            value={bookingReference} maxLength={20}
+                            onChange={e => setBookingReference(e.target.value.toUpperCase())}/>
+                          <button onClick={async () => {
+                            await onUpdateFlightReference?.(current.id, idx, bookingReference);
+                            setEditingBookingId(null);
+                          }}>Save reference</button>
+                          <button onClick={() => setEditingBookingId(null)}>Cancel</button>
+                        </div>
+                      ) : editingBookingId === 'flight-' + idx ? (
                         <div className="booking-input">
                           <input type="url" placeholder="Public airline link (HTTPS, not booking code)"
                             value={bookingLink} onChange={e => setBookingLink(e.target.value)}/>
@@ -125,6 +138,10 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
                           setEditingBookingId('flight-' + idx);
                           setBookingLink(flight.bookingLink || '');
                         }}>{flight.bookingLink ? 'Edit link' : '+ Add airline link'}</button>
+                        <button onClick={() => {
+                          setEditingBookingId('reference-' + idx);
+                          setBookingReference(flight.bookingReference || '');
+                        }}>{flight.bookingReference ? 'Edit booking reference' : '+ Add booking reference'}</button>
                         {!/confirm/i.test(flight.status || '') && !/cancel/i.test(flight.status || '') &&
                           <button onClick={() => onConfirmFlight?.(current.id, idx)}>
                             Mark confirmed
