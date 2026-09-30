@@ -110,6 +110,26 @@ export default function App() {
       .catch(() => setDataError('Could not save this booking link.'));
   };
 
+  const handleConfirmFlight = async (destinationId, flightIndex) => {
+    if (userRole !== 'edit' || !Array.isArray(tripData?.destinations)) return;
+    const destinationIndex = tripData.destinations.findIndex(d => String(d.id) === String(destinationId));
+    const flight = tripData.destinations[destinationIndex]?.flights?.[flightIndex];
+    if (destinationIndex < 0 || !flight) return;
+    await update(ref(database, `trip/destinations/${destinationIndex}/flights/${flightIndex}`), {
+      status: 'confirmed',
+      confirmedAt: Date.now(),
+      trackingEnabled: true
+    });
+  };
+
+  const handleRemoveFlight = async (destinationId, flightIndex) => {
+    if (userRole !== 'edit' || !Array.isArray(tripData?.destinations)) return;
+    const destinationIndex = tripData.destinations.findIndex(d => String(d.id) === String(destinationId));
+    const flight = tripData.destinations[destinationIndex]?.flights?.[flightIndex];
+    if (destinationIndex < 0 || !flight) return;
+    await set(ref(database, `trip/destinations/${destinationIndex}/flights/${flightIndex}`), null);
+  };
+
 
   const editorOnly = () => {
     if (userRole !== 'edit') throw new Error('Only Gennady and Marina can change stays.');
@@ -326,6 +346,8 @@ export default function App() {
           <DestinationDetail trip={tripData}
             destinations={destinations} selectedId={selectedDestination}
             onUpdateBooking={handleUpdateBooking}
+            onConfirmFlight={handleConfirmFlight}
+            onRemoveFlight={handleRemoveFlight}
             onUpdateCosts={handleUpdateCosts} userRole={userRole}
             onSelectPreferred={selectPreferred}
             onImportScreenshot={importScreenshot}
