@@ -732,6 +732,61 @@ function rescanAllTripMail() {
 }
 
 /**
+ * Repair approved multi-flight records that were accidentally removed from
+ * Destinations after approval. It only recreates target paths recorded in
+ * trip/emailImports when that exact path is currently empty.
+ *
+ * It never resets Gmail review status and never overwrites an existing flight.
+ */
+function restoreMissingApprovedFlights() {
+  checkAccount_();
+  const trip = firebase_('get', 'trip') || {};
+  const queue = firebase_('get', TRIP_CONFIG.queuePath) || {};
+  const changes = {};
+  let restored = 0;
+
+  for (const [emailId, link] of Object.entries(trip.emailImports || {})) {
+    if (!link || link.category !== 'flight' || !Array.isArray(link.targetPaths)) continue;
+    const item = queue[emailId];
+    if (!item || item.status !== 'approved' || !Array.isArray(item.segments)) continue;
+
+    link.targetPaths.forEach((path, segmentIndex) => {
+      const match = String(path || '').match(/^trip\/destinations\/(\d+)\/flights\/(\d+)$/);
+      if (!match) return;
+      const destIndex = Number(match[1]), flightIndex = Number(match[2]);
+      const current = trip.destinations?.[destIndex]?.flights?.[flightIndex];
+      if (current) return;
+
+      const leg = item.segments[segmentIndex];
+      if (!leg || !leg.number || !leg.from || !leg.to || !leg.date || !leg.departure) return;
+      changes[path] = {
+        id: 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 45) + '_' + segmentIndex,
+        status: 'confirmed',
+        airline: item.airline || 'Airline',
+        number: String(leg.number).toUpperCase(),
+        date: leg.date,
+        from: leg.from,
+        to: leg.to,
+        departure: leg.departure,
+        arrival: leg.arrival || '',
+        arrivalDate: leg.arrivalDate || '',
+        source: 'Gmail review',
+        reviewedEmails: { [emailId]: true },
+        reviewedAt: Date.now(),
+        confirmedAt: Date.now(),
+        trackingEnabled: true,
+        restoredFromApprovedImport: true
+      };
+      restored++;
+    });
+  }
+
+  if (restored) firebase_('patch', '', changes);
+  Logger.log('Approved flight repair complete: restored ' + restored +
+    ' missing flight record(s). Existing flight records were not changed.');
+}
+
+/**
  * Explicit one-time repair for the forwarded Airbnb confirmation that was
  * received on 22 Sep 2026 for Mutisia's Home in El Chaltén, 12–16 Mar 2027.
  * This is intentionally NOT part of normal sync because normal sync preserves
