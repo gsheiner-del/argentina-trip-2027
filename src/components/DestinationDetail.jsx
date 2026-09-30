@@ -4,7 +4,7 @@ import CostTracker from './CostTracker';
 import StayOptions from './StayOptions';
 import NearbyExplore from './NearbyExplore';
 
-export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onConfirmFlight, onRemoveFlight, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
+export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onConfirmFlight, onArchiveFlight, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
@@ -88,7 +88,8 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
               <h3>Flights</h3>
               <p>Confirmed flights from Gmail Review appear alongside previously entered flight plans.
                 Duplicate passenger confirmations can enrich the same flight card.</p>
-              {current.flights?.length ? current.flights.map((flight, idx) => (
+              {current.flights?.some(flight => flight && flight.status !== 'superseded')
+                ? current.flights.map((flight, idx) => flight && flight.status !== 'superseded' ? (
                 <article className="flight-card" key={flight.id || idx}>
                   <div className="flight-header">
                     <h4>{flight.airline} {flight.number}</h4>
@@ -129,15 +130,37 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
                             Mark confirmed
                           </button>}
                         <button className="remove-btn" onClick={() => {
-                          if (window.confirm('Remove this flight from the itinerary?')) {
-                            onRemoveFlight?.(current.id, idx);
+                          if (window.confirm('Archive this flight? You can restore it later.')) {
+                            onArchiveFlight?.(current.id, idx, true);
                           }
-                        }}>Remove from itinerary</button>
+                        }}>Archive flight</button>
                       </>}
                     </div>
                   )}
                 </article>
-              )) : <p>No flights added yet. Use Gmail Review to approve confirmed flight details.</p>}
+              ) : null) : <p>No active flights. Use Gmail Review to approve confirmed flight details.</p>}
+              {current.flights?.some(flight => flight && flight.status === 'superseded') && (
+                <details className="archived-flights">
+                  <summary>Archived flights</summary>
+                  {current.flights.map((flight, idx) => flight && flight.status === 'superseded' ? (
+                    <article className="flight-card" key={'archived-' + (flight.id || idx)}>
+                      <div className="flight-header">
+                        <h4>{flight.airline} {flight.number}</h4>
+                        <span className="status">Archived</span>
+                      </div>
+                      {flight.date && <p>📅 {flight.date}</p>}
+                      <div className="flight-details">
+                        <div><strong>{flight.from || 'Departure TBD'}</strong> → {flight.departure || 'Time TBD'}</div>
+                        <div><strong>{flight.to || 'Arrival TBD'}</strong> → {flight.arrival || 'Time TBD'}</div>
+                      </div>
+                      {userRole === 'edit' &&
+                        <button onClick={() => onArchiveFlight?.(current.id, idx, false)}>
+                          Restore flight
+                        </button>}
+                    </article>
+                  ) : null)}
+                </details>
+              )}
             </section>
           )}
 
