@@ -367,7 +367,13 @@ export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) 
     if (matching.length) {
       const previous = matching[0].row;
       updates[path + '/reviewedEmails/' + emailId] = true;
+      // Explicit Gmail approval confirms the matched flight. Do not leave an
+      // old planning/quote status such as "Not booked" on a confirmed ticket.
+      if (!/confirm/i.test(previous.status || '')) updates[path + '/status'] = 'confirmed';
+      updates[path + '/trackingEnabled'] = true;
+      updates[path + '/confirmedAt'] = previous.confirmedAt || now;
       for (const [key, value] of Object.entries(record)) {
+        if (key === 'status') continue;
         if (value && (previous[key] === undefined || previous[key] === null || previous[key] === ''))
           updates[path + '/' + key] = value;
       }
@@ -376,7 +382,8 @@ export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) 
       updates[path] = {
         ...record,
         id: 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 45) + '_' + paths.length,
-        reviewedEmails: { [emailId]: true }, reviewedAt: now
+        reviewedEmails: { [emailId]: true }, reviewedAt: now,
+        trackingEnabled: true, confirmedAt: now
       };
     }
     paths.push(path);
