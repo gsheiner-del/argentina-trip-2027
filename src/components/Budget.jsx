@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { COST_CATEGORIES, aggregateCosts, convertPlanningEstimate, selectedHotelCosts, bookedDomesticFlights } from '../utils/budget';
-import { fetchUsdQuote, currentDisplay, formatMoney, FX_ATTRIBUTION_URL } from '../utils/fx';
+import { fetchUsdQuote, currentDisplay, formatMoney, FX_ATTRIBUTION_URL, snapshotExpense } from '../utils/fx';
 import { COUPLE_CATEGORIES, normalizedCoupleAllocations, validateCoupleAllocations, calculateCoupleEstimate } from '../utils/coupleBudget.js';
+import { TRIP_PAYERS, payerName } from '../utils/receipts.js';
 import './Budget.css';
 
 const CURRENCIES = [
@@ -10,14 +11,14 @@ const CURRENCIES = [
   { code: 'ILS', label: '🇮🇱 ILS' }
 ];
 const LEGACY_ITEMS = [
-  ['domesticFlights', '✈️ Domestic Flights'],
+  ['domesticFlights', '✈️ Domestic flights'],
   ['hotels', '🏨 Hotels'],
-  ['transport', '🚗 Ground Transport'],
-  ['activities', '🎯 Activities & Tours'],
-  ['meals', '🍽️ Meals & Dining'],
+  ['transport', '🚗 Ground transport'],
+  ['activities', '🎯 Activities & tours'],
+  ['meals', '🍽️ Meals & dining'],
   ['other', '📱 Other']
 ];
-export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) {
+export default function Budget({ tripData, userRole, onSaveCoupleAllocations, onSaveDomesticFlightsPackage }) {
   const budget = tripData?.budget || {};
   const destinations = tripData?.destinations || [];
   const [currency, setCurrency] = useState('USD');
@@ -30,10 +31,29 @@ export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) 
   const [coupleSaving, setCoupleSaving] = useState(false);
   const [coupleNotice, setCoupleNotice] = useState('');
   const [coupleError, setCoupleError] = useState('');
+  const [flightPackageDraft, setFlightPackageDraft] = useState(() => ({
+    amount: tripData?.budget?.actualDomesticFlights?.amount == null ? '' :
+      String(tripData.budget.actualDomesticFlights.amount),
+    currency: tripData?.budget?.actualDomesticFlights?.currency || 'ARS',
+    paidBy: tripData?.budget?.actualDomesticFlights?.paidBy || '',
+    note: tripData?.budget?.actualDomesticFlights?.note || 'Domestic flights package'
+  }));
+  const [flightPackageSaving, setFlightPackageSaving] = useState(false);
+  const [flightPackageError, setFlightPackageError] = useState('');
+  const [flightPackageNotice, setFlightPackageNotice] = useState('');
   useEffect(() => {
     if (!coupleDirty) setCoupleSettings(
       normalizedCoupleAllocations(tripData?.budget?.coupleAllocations));
   }, [tripData?.budget?.coupleAllocations, coupleDirty]);
+  useEffect(() => {
+    const saved = tripData?.budget?.actualDomesticFlights;
+    setFlightPackageDraft({
+      amount: saved?.amount == null ? '' : String(saved.amount),
+      currency: saved?.currency || 'ARS',
+      paidBy: saved?.paidBy || '',
+      note: saved?.note || 'Domestic flights package'
+    });
+  }, [tripData?.budget?.actualDomesticFlights]);
   const setCoupleField = (category, field, value) => {
     setCoupleSettings(previous => ({
       ...previous, [category]: { ...previous[category], [field]: value }
@@ -56,6 +76,32 @@ export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) 
     }
   };
 
+
+  const saveFlightPackage = async () => {
+    if (!onSaveDomesticFlightsPackage || flightPackageSaving) return;
+    setFlightPackageError(''); setFlightPackageNotice('');
+    const amount = Number(String(flightPackageDraft.amount).replace(/,/g, ''));
+    if (!Number.isFinite(amount) || amount < 0) {
+      setFlightPackageError('Enter a valid non-negative package amount.');
+      return;
+    }
+    try {
+      setFlightPackageSaving(true);
+      const freshQuote = flightPackageDraft.currency === 'USD' ? null : await fetchUsdQuote();
+      const snapshot = snapshotExpense(amount, flightPackageDraft.currency, freshQuote);
+      await onSaveDomesticFlightsPackage({
+        ...snapshot,
+        paidBy: flightPackageDraft.paidBy || '',
+        note: String(flightPackageDraft.note || '').trim().slice(0, 160),
+        savedAt: Date.now()
+      });
+      setFlightPackageNotice('Domestic flights package saved in actual budget.');
+    } catch (error) {
+      setFlightPackageError(error.message || 'Could not save domestic flights package.');
+    } finally {
+      setFlightPackageSaving(false);
+    }
+  };
 
   const refreshQuote = async () => {
     setFxLoading(true);
@@ -107,7 +153,7 @@ export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) 
   const missingCount = report.issues.filter(x => x.state === 'rate_missing').length;
   return (
     <div className="budget-container">
-      <h2>💰 Trip Budget</h2>
+      <h2>💰 Budget</h2>
       <div className="currency-toggle" aria-label="Currency for entire Budget page">
         {CURRENCIES.map((c) => (
           <button key={c.code} type="button"
@@ -137,7 +183,7 @@ export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) 
         </p>
         <div className="budget-table">
           <div className="budget-row"><span>🏨 Preferred confirmed hotels ({hotelReport.count})</span><span>{converted(hotelReport.total)}</span></div>
-          <div className="budget-row"><span>✈️ Booked domestic flights ({flightReport.count})</span><span>{converted(flightReport.total)}</span></div>
+          <div className="budget-row"><span>✈️ Domestic flights package{flightReport.flightCount ? ' · ' + flightReport.flightCount + ' confirmed flights' : ''}</span><span>{converted(flightReport.total)}</span></div>
           {COST_CATEGORIES.map(cat => (
             <div key={cat.key} className="budget-row">
               <span>{cat.label}</span>
@@ -151,6 +197,46 @@ export default function Budget({ tripData, userRole, onSaveCoupleAllocations }) 
         </div>
         {(hotelReport.unpriced + flightReport.unpriced) > 0 && <p className="budget-note">
           {hotelReport.unpriced + flightReport.unpriced} confirmed selected hotel / domestic flight item(s) have no convertible price yet.</p>}
+        {userRole === 'edit' && <div className="flight-package-editor">
+          <h4>Domestic flights package payment</h4>
+          <p className="budget-note">Store the actual purchase as one payment. It is not divided across individual flight legs.</p>
+          <div className="couple-allocation-editor">
+            <label>Amount
+              <input value={flightPackageDraft.amount}
+                onChange={e => setFlightPackageDraft(v => ({...v, amount: e.target.value}))}
+                inputMode="decimal" placeholder="0.00"/>
+            </label>
+            <label>Currency
+              <select value={flightPackageDraft.currency}
+                onChange={e => setFlightPackageDraft(v => ({...v, currency: e.target.value}))}>
+                <option>USD</option><option>ARS</option><option>ILS</option>
+              </select>
+            </label>
+            <label>Paid by
+              <select value={flightPackageDraft.paidBy}
+                onChange={e => setFlightPackageDraft(v => ({...v, paidBy: e.target.value}))}>
+                <option value="">Not specified</option>
+                {TRIP_PAYERS.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+            </label>
+            <label>Note
+              <input value={flightPackageDraft.note}
+                onChange={e => setFlightPackageDraft(v => ({...v, note: e.target.value}))}/>
+            </label>
+          </div>
+          <div className="couple-save">
+            <button type="button" onClick={saveFlightPackage} disabled={flightPackageSaving}>
+              {flightPackageSaving ? 'Saving…' : 'Save package payment'}
+            </button>
+            {tripData?.budget?.actualDomesticFlights && <span>
+              Saved{tripData.budget.actualDomesticFlights.paidBy
+                ? ' · paid by ' + payerName(tripData.budget.actualDomesticFlights.paidBy) : ''}
+            </span>}
+            {flightPackageError && <p role="alert">{flightPackageError}</p>}
+            {flightPackageNotice && <p role="status">{flightPackageNotice}</p>}
+          </div>
+        </div>}
+
         {report.provisionalCount > 0 &&
           <p className="budget-note">{report.provisionalCount} legacy foreign-currency item(s)
             do not have a saved exchange-rate snapshot. Edit and save them to lock in a rate.</p>}
