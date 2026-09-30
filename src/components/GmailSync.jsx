@@ -15,6 +15,7 @@ const initDraft = item => {
   checkIn: item.checkIn || '', checkOut: item.checkOut || '',
   date: item.date || firstLeg.date || item.checkIn || '',
   number: item.number || firstLeg.number || '', airline: item.airline || '',
+  bookingReference: item.bookingReference || '',
   from: item.from || firstLeg.from || '', to: item.to || firstLeg.to || '',
   departure: item.departure || firstLeg.departure || '',
   arrival: item.arrival || firstLeg.arrival || '',
@@ -180,6 +181,8 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             onChange={e => setField('number', e.target.value)}/></label>
           <label>Airline<input value={draft.airline}
             onChange={e => setField('airline', e.target.value)}/></label>
+          <label>Booking reference<input value={draft.bookingReference}
+            onChange={e => setField('bookingReference', e.target.value.toUpperCase())}/></label>
           <label>Flight date<input type="date" value={draft.date}
             onChange={e => setField('date', e.target.value)}/></label>
           <label>From airport<input value={draft.from}
