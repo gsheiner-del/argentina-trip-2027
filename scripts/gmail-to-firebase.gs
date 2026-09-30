@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-30-pdf-flight-import-v13';
+const IMPORTER_VERSION = '2026-09-30-flight-reference-v14';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -65,6 +65,18 @@ function bookingGroup_(subject, body) {
   const key = (booking?.[1] || base).toUpperCase();
   const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key);
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/, '');
+}
+
+function flightBookingReference_(subject, body) {
+  const source = String(subject || '') + '\n' + String(body || '');
+  // Prefer the airline's own PNR when a travel-agent itinerary also contains
+  // an agency reservation code.
+  const airlinePnr = source.match(/AIRLINE\s+RESERVATION\s+CODE\s*[:#]?\s*([A-Z0-9]{5,12})\s*(?:\(AR\))?/i);
+  if (airlinePnr) return airlinePnr[1].toUpperCase();
+  const booking = source.match(/\bbooking\s+code\s*[:#]?\s*([A-Z0-9]{5,12})\b/i);
+  if (booking) return booking[1].toUpperCase();
+  const spanish = source.match(/C[ÓO]DIGO\s+DE\s+RESERVACI[ÓO]N\s*[:#]?\s*([A-Z0-9]{5,12})\b/i);
+  return spanish ? spanish[1].toUpperCase() : '';
 }
 
 // Date extraction deliberately uses only labelled booking/flight fields. A generic
@@ -447,6 +459,8 @@ function extract_(message) {
     date: extracted.date || '',
     number: extracted.number || '',
     airline: extracted.airline || '',
+    bookingReference: category === 'flight' || category === 'flight_extra'
+      ? flightBookingReference_(subject, body) : '',
     from: extracted.from || '',
     to: extracted.to || '',
     departure: extracted.departure || '', arrival: extracted.arrival || '',
@@ -729,6 +743,61 @@ function backfillGmailMetadata() {
 function rescanAllTripMail() {
   syncGmailToFirebase();
   backfillGmailMetadata();
+}
+
+/**
+ * Repair approved multi-flight records that were accidentally removed from
+ * Destinations after approval. It only recreates target paths recorded in
+ * trip/emailImports when that exact path is currently empty.
+ *
+ * It never resets Gmail review status and never overwrites an existing flight.
+ */
+function restoreMissingApprovedFlights() {
+  checkAccount_();
+  const trip = firebase_('get', 'trip') || {};
+  const queue = firebase_('get', TRIP_CONFIG.queuePath) || {};
+  const changes = {};
+  let restored = 0;
+
+  for (const [emailId, link] of Object.entries(trip.emailImports || {})) {
+    if (!link || link.category !== 'flight' || !Array.isArray(link.targetPaths)) continue;
+    const item = queue[emailId];
+    if (!item || item.status !== 'approved' || !Array.isArray(item.segments)) continue;
+
+    link.targetPaths.forEach((path, segmentIndex) => {
+      const match = String(path || '').match(/^trip\/destinations\/(\d+)\/flights\/(\d+)$/);
+      if (!match) return;
+      const destIndex = Number(match[1]), flightIndex = Number(match[2]);
+      const current = trip.destinations?.[destIndex]?.flights?.[flightIndex];
+      if (current) return;
+
+      const leg = item.segments[segmentIndex];
+      if (!leg || !leg.number || !leg.from || !leg.to || !leg.date || !leg.departure) return;
+      changes[path] = {
+        id: 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 45) + '_' + segmentIndex,
+        status: 'confirmed',
+        airline: item.airline || 'Airline',
+        number: String(leg.number).toUpperCase(),
+        date: leg.date,
+        from: leg.from,
+        to: leg.to,
+        departure: leg.departure,
+        arrival: leg.arrival || '',
+        arrivalDate: leg.arrivalDate || '',
+        source: 'Gmail review',
+        reviewedEmails: { [emailId]: true },
+        reviewedAt: Date.now(),
+        confirmedAt: Date.now(),
+        trackingEnabled: true,
+        restoredFromApprovedImport: true
+      };
+      restored++;
+    });
+  }
+
+  if (restored) firebase_('patch', '', changes);
+  Logger.log('Approved flight repair complete: restored ' + restored +
+    ' missing flight record(s). Existing flight records were not changed.');
 }
 
 /**

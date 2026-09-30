@@ -225,7 +225,7 @@ test('EL AL ancillary receipt inherits verified itinerary only from same booking
   assert.equal(missing.departure, '18:15');
   assert.equal(linkedFlightDetails_(otherPerson, extract_(otherPerson), donors).segments.length, 0);
   assert.equal(linkedFlightDetails_(wrongBooking, extract_(wrongBooking), donors).segments.length, 0);
-  assert.ok(!JSON.stringify(filled).includes('ABC123'));
+  assert.equal(filled.bookingReference, 'ABC123');
 });
 
 test('Conflicting itineraries with the same booking and passenger never enrich an EMD', () => {
@@ -283,7 +283,7 @@ test('EL AL booking key is recovered from HTML when forwarded plain text omits t
   assert.equal(donor.ambiguous.size, 0);
   const linked = linkedFlightDetails_(ancillary, extract_(ancillary), donor);
   assert.equal(linked.segments.length, 2);
-  assert.ok(!JSON.stringify(linked).includes('ABC123'));
+  assert.equal(linked.bookingReference, 'ABC123');
 });
 
 
@@ -423,4 +423,15 @@ test('Aerolíneas Argentinas PDF itinerary text extracts all five confirmed dome
       ['AR1706','BRC','MDZ','2027-03-18','13:15','14:55'],
       ['AR1419','MDZ','AEP','2027-03-21','15:00','16:40']
     ]);
+});
+
+test('Aerolíneas airline PNR is preferred over travel-agency reservation code', () => {
+  const body = [
+    'AEROLINEAS ARGENTINAS',
+    'CÓDIGO DE RESERVACIÓN LTOGAT',
+    'AIRLINE RESERVATION CODE LQLYTF (AR)',
+    'AR 1874 AEP USH March 9 2027'
+  ].join('\n');
+  const rec = extract_(email('Flight itinerary', body, 'ar-pnr'));
+  assert.equal(rec.bookingReference, 'LQLYTF');
 });

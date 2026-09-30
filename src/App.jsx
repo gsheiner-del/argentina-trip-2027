@@ -122,12 +122,25 @@ export default function App() {
     });
   };
 
-  const handleRemoveFlight = async (destinationId, flightIndex) => {
+  const handleArchiveFlight = async (destinationId, flightIndex, archived = true) => {
     if (userRole !== 'edit' || !Array.isArray(tripData?.destinations)) return;
     const destinationIndex = tripData.destinations.findIndex(d => String(d.id) === String(destinationId));
     const flight = tripData.destinations[destinationIndex]?.flights?.[flightIndex];
     if (destinationIndex < 0 || !flight) return;
-    await set(ref(database, `trip/destinations/${destinationIndex}/flights/${flightIndex}`), null);
+    const path = `trip/destinations/${destinationIndex}/flights/${flightIndex}`;
+    if (archived) {
+      await update(ref(database, path), {
+        previousStatus: flight.previousStatus || flight.status || 'planning',
+        status: 'superseded',
+        archivedAt: Date.now()
+      });
+    } else {
+      await update(ref(database, path), {
+        status: flight.previousStatus || 'planning',
+        previousStatus: null,
+        archivedAt: null
+      });
+    }
   };
 
 
@@ -220,6 +233,24 @@ export default function App() {
     // Only update the allocation tree, preserving current planning totals,
     // Gmail-approved reservations and real tracked expenses.
     await set(ref(database, 'trip/budget/coupleAllocations'), allocations);
+  };
+
+  const saveDomesticFlightsPackage = async (expense) => {
+    editorOnly();
+    await set(ref(database, 'trip/budget/actualDomesticFlights'), expense || null);
+  };
+
+  const handleUpdateFlightReference = async (destinationId, flightIndex, bookingReference) => {
+    if (userRole !== 'edit' || !Array.isArray(tripData?.destinations)) return;
+    const destinationIndex = tripData.destinations.findIndex(d => String(d.id) === String(destinationId));
+    const flight = tripData.destinations[destinationIndex]?.flights?.[flightIndex];
+    if (destinationIndex < 0 || !flight) return;
+    const value = String(bookingReference || '').trim().toUpperCase();
+    if (value && !/^[A-Z0-9-]{4,20}$/.test(value))
+      throw new Error('Booking reference should contain 4–20 letters, numbers or hyphens.');
+    await set(ref(database,
+      `trip/destinations/${destinationIndex}/flights/${flightIndex}/bookingReference`),
+      value || null);
   };
 
   const importScreenshot = async (rows) => {
@@ -347,7 +378,8 @@ export default function App() {
             destinations={destinations} selectedId={selectedDestination}
             onUpdateBooking={handleUpdateBooking}
             onConfirmFlight={handleConfirmFlight}
-            onRemoveFlight={handleRemoveFlight}
+            onArchiveFlight={handleArchiveFlight}
+            onUpdateFlightReference={handleUpdateFlightReference}
             onUpdateCosts={handleUpdateCosts} userRole={userRole}
             onSelectPreferred={selectPreferred}
             onImportScreenshot={importScreenshot}
@@ -355,7 +387,8 @@ export default function App() {
           />
         )}
         {currentTab === 'budget' && <Budget tripData={tripData} userRole={userRole}
-            onSaveCoupleAllocations={saveCoupleAllocations} />}
+            onSaveCoupleAllocations={saveCoupleAllocations}
+            onSaveDomesticFlightsPackage={saveDomesticFlightsPackage} />}
         {currentTab === 'gmail' && userRole === 'edit' &&
           <GmailSync currentEmail={userEmail} trip={tripData} />}
       </main>
