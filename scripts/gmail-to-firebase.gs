@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-30-pdf-flight-import-v12';
+const IMPORTER_VERSION = '2026-09-30-pdf-flight-import-v13';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -180,26 +180,35 @@ function pdfAttachmentText_(message) {
 
 function aerolineasPdfSegments_(text) {
   const source = String(text || '');
-  if (!/aerolineas\s+argentinas/i.test(clean_(source))) return [];
+  if (!/aerol[ií]neas\s+argentinas/i.test(source)) return [];
   const yearMatch = source.match(/\b(20\d{2})\b/);
   if (!yearMatch) return [];
   const year = yearMatch[1];
   const blocks = source.split(/PARTIDA\s*:/i).slice(1);
   const segments = [];
-  for (const block of blocks) {
-    const dateMatch = block.match(/^[^\n\r]*?\b(\d{1,2})\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]{3,12})\b/i);
+  for (const rawBlock of blocks) {
+    // Drive PDF conversion can preserve line breaks, collapse them, or insert
+    // arbitrary whitespace. Parse the semantic labels, not the visual layout.
+    const block = rawBlock.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    const dateMatch = block.match(/\b(\d{1,2})\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]{3,12})\b/i);
     const numberMatch = block.match(/\bAR\s*(\d{3,4})\b/i);
     if (!dateMatch || !numberMatch) continue;
     const date = parseDate_(dateMatch[1] + ' ' + dateMatch[2] + ' ' + year);
     if (!date) continue;
-    const airportCodes = [...block.matchAll(/(?:^|\n)\s*(AEP|EZE|USH|FTE|BRC|MDZ|IGR|REL|PMY|COR|SCL|TLV)\s*(?:\n|$)/gi)]
+
+    const codeHits = [...block.matchAll(/\b(AEP|EZE|USH|FTE|BRC|MDZ|IGR|REL|PMY|COR|SCL|TLV)\b/gi)]
       .map(match => match[1].toUpperCase());
     const route = [];
-    for (const code of airportCodes) if (!route.includes(code)) route.push(code);
+    for (const code of codeHits) {
+      if (!route.includes(code)) route.push(code);
+      if (route.length === 2) break;
+    }
     if (route.length < 2) continue;
-    const departure = (block.match(/Sale\s+a\s+la\(s\)\s*:\s*(?:\r?\n|\s)+([0-2]?\d:[0-5]\d)/i) || [])[1] || '';
-    const arrival = (block.match(/Llega\s+a\s+la\(s\)\s*:\s*(?:\r?\n|\s)+([0-2]?\d:[0-5]\d)/i) || [])[1] || '';
+
+    const departure = (block.match(/Sale\s+a\s+la\(s\)\s*:\s*([0-2]?\d:[0-5]\d)/i) || [])[1] || '';
+    const arrival = (block.match(/Llega\s+a\s+la\(s\)\s*:\s*([0-2]?\d:[0-5]\d)/i) || [])[1] || '';
     if (!departure || !arrival) continue;
+
     segments.push({
       number: 'AR' + numberMatch[1],
       from: route[0],
