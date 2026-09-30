@@ -43,7 +43,7 @@ function category_(subject, body) {
     return 'hotel';
   if (/booking.+(?:hotel|apartment|apart|alojamiento)|confirmed at|booking canceled/.test(title)) return 'hotel';
   if (/flight|itinerary|e.ticket|el al|aerolineas|boarding/.test(title)) return 'flight';
-  if (/aerolineas argentinas|\bAR\s?\d{3,4}\b|partida\s*:/.test(text)) return 'flight';
+  if (/aerolineas argentinas|\bar\s?\d{3,4}\b|partida\s*:/.test(text)) return 'flight';
   if (/transfer|rent.a.car|car rental|shuttle/.test(title)) return 'transport';
   if (/booking|apartment|hotel|stay|alojamiento|cabanas|apart/.test(text)) return 'hotel';
   return 'other';
