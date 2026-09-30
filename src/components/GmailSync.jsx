@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { database, ref, onValue, update } from '../firebase';
 import { existingRecords, likelyMatches, samePropertyOptions, supersededReviewIds, prepareApproval, prepareMultiFlightApproval } from '../utils/tripReview.js';
-import { cityMatches, resolveStayVisit } from '../utils/tripReview.js';
+import { cityMatches, resolveStayVisit, resolveFlightDestination } from '../utils/tripReview.js';
 import '../styles/GmailSync.css';
 
 const QUEUE_PATH = 'gmailImport/reviewQueue';
@@ -73,10 +73,14 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
     cityMatches(draft.place, (trip.destinations || []).find(d => String(d.id) === String(destinationId))?.name);
   const conflicts = matches.find(m => m.sourcePath === existingPath)?.conflicts || [];
   const multiFlight = category === 'flight' && (item.segments || []).length > 1;
-  const canApprove = multiFlight ? !item.cancellationFlag && Boolean(destinationId) :
-    !item.cancellationFlag && draft.title.trim() && destinationId &&
-    cityAgrees && !selectedVisitMismatch && (!datesDiffer || confirmedDateChange) &&
-    (existingPath || matches.length === 0);
+  const segmentDestinations = multiFlight
+    ? (item.segments || []).map(leg => resolveFlightDestination(trip, leg))
+    : [];
+  const canApprove = multiFlight
+    ? !item.cancellationFlag && segmentDestinations.every(Boolean)
+    : !item.cancellationFlag && draft.title.trim() && destinationId &&
+      cityAgrees && !selectedVisitMismatch && (!datesDiffer || confirmedDateChange) &&
+      (existingPath || matches.length === 0);
 
   const approve = async () => {
     setError('');
@@ -116,7 +120,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             setCategory(e.target.value); setExistingPath('');
           }}>{options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </label>
-        <label>Destination
+        {!multiFlight && <label>Destination
           <select value={destinationId} onChange={e => {
             setDestinationId(e.target.value); setExistingPath(''); setConfirmedDateChange(false);
           }}>
@@ -124,7 +128,19 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
             {(trip.destinations || []).map(dest =>
               <option key={dest.id} value={dest.id}>{dest.name}</option>)}
           </select>
-        </label>
+        </label>}
+        {multiFlight && <div className="gmail-match-panel">
+          <strong>Destinations for this itinerary</strong>
+          {(item.segments || []).map((leg, index) => <p key={'route-' + index}>
+            {leg.number}: {leg.from} → {leg.to} · {leg.date}
+            {' → '}
+            <strong>{segmentDestinations[index]?.name || 'Destination needs review'}</strong>
+          </p>)}
+          {!segmentDestinations.every(Boolean) && <p className="gmail-warning">
+            One or more flight legs cannot be matched safely to the itinerary.
+            Do not approve until the route is resolved.
+          </p>}
+        </div>}
         <label>Property / flight / activity name
           <input value={draft.title} maxLength={140}
             onChange={e => setField('title', e.target.value)}/></label>
@@ -149,7 +165,7 @@ function ReviewCard({ item, itemId, trip, saving, onAction }) {
           </select></label>
         </>}
         {category === 'flight' && (item.segments || []).length > 0 && <div className="gmail-match-panel">
-          <strong>Flights found in this ticket receipt</strong>
+          <strong>Flights found in this itinerary</strong>
           {(item.segments || []).map((leg, index) => <p key={index}>
             {leg.number}: {leg.from} → {leg.to} · {leg.date} {leg.departure}
             {leg.arrivalDate ? ' → ' + leg.arrivalDate : ''} {leg.arrival}

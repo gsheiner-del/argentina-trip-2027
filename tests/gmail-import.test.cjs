@@ -14,10 +14,10 @@ const sandbox = {
   }
 };
 vm.createContext(sandbox);
-vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_ };', sandbox, {
+vm.runInContext(script + '\n globalThis.testApi = { extract_, onlyTripMessage_, category_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_, aerolineasPdfSegments_ };', sandbox, {
   filename: 'gmail-to-firebase.gs'
 });
-const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_ } = sandbox.testApi;
+const { extract_, onlyTripMessage_, buildFlightDonors_, linkedFlightDetails_, missingFields_, recoverAirbnbReviewFields_, aerolineasPdfSegments_ } = sandbox.testApi;
 
 function email(subject, body, id = 'testid', html = '') {
   return {
@@ -391,4 +391,36 @@ test('Mutisia one-time recovery is constrained to exact Airbnb stay and never au
   assert.match(script, /status: 'pending'/);
   assert.doesNotMatch(script.slice(script.indexOf('function restoreMutisiaAirbnbReview'),
     script.indexOf('function sendCancellationReminders')), /prepareApproval|trip\/destinations/);
+});
+
+
+test('Aerolíneas Argentinas PDF itinerary text extracts all five confirmed domestic legs', () => {
+  const pdfText = [
+    '09 MAR 2027 21 MAR 2027 DESTINO EL CALAFATE, ARGENTINA',
+    'PARTIDA: MARTES 09 MAR',
+    'AEROLINEAS ARGENTINAS', 'AR 1874', 'AEP', 'BUENOS AIRES AEP, ARGENTINA',
+    'USH', 'USHUAIA, ARGENTINA', 'Sale a la(s):', '05:50', 'Llega a la(s):', '09:30',
+    'PARTIDA: VIERNES 12 MAR',
+    'AEROLINEAS ARGENTINAS', 'AR 1897', 'USH', 'USHUAIA, ARGENTINA',
+    'FTE', 'EL CALAFATE, ARGENTINA', 'Sale a la(s):', '09:20', 'Llega a la(s):', '10:40',
+    'PARTIDA: JUEVES 18 MAR',
+    'AEROLINEAS ARGENTINAS', 'AR 1695', 'FTE', 'EL CALAFATE, ARGENTINA',
+    'BRC', 'BARILOCHE SAN CAR, ARGENTINA', 'Sale a la(s):', '09:20', 'Llega a la(s):', '11:05',
+    'PARTIDA: JUEVES 18 MAR',
+    'AEROLINEAS ARGENTINAS', 'AR 1706', 'BRC', 'BARILOCHE SAN CAR, ARGENTINA',
+    'MDZ', 'MENDOZA, ARGENTINA', 'Sale a la(s):', '13:15', 'Llega a la(s):', '14:55',
+    'PARTIDA: DOMINGO 21 MAR',
+    'AEROLINEAS ARGENTINAS', 'AR 1419', 'MDZ', 'MENDOZA, ARGENTINA',
+    'AEP', 'BUENOS AIRES AEP, ARGENTINA', 'Sale a la(s):', '15:00', 'Llega a la(s):', '16:40'
+  ].join('\n');
+  const segments = aerolineasPdfSegments_(pdfText);
+  assert.equal(segments.length, 5);
+  assert.deepEqual(Array.from(segments, leg =>
+    [leg.number, leg.from, leg.to, leg.date, leg.departure, leg.arrival]), [
+      ['AR1874','AEP','USH','2027-03-09','05:50','09:30'],
+      ['AR1897','USH','FTE','2027-03-12','09:20','10:40'],
+      ['AR1695','FTE','BRC','2027-03-18','09:20','11:05'],
+      ['AR1706','BRC','MDZ','2027-03-18','13:15','14:55'],
+      ['AR1419','MDZ','AEP','2027-03-21','15:00','16:40']
+    ]);
 });

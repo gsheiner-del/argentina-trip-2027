@@ -282,6 +282,38 @@ export function prepareApproval(trip, queue, emailId, options) {
  * Repeated passenger emails enrich the same shared flight records.
  * No passenger identity, ticket or loyalty number is published to trip.
  */
+
+const FLIGHT_AIRPORT_CITY = {
+  AEP: 'Buenos Aires', EZE: 'Buenos Aires',
+  USH: 'Ushuaia', FTE: 'El Calafate', BRC: 'Bariloche',
+  MDZ: 'Mendoza', IGR: 'Puerto Iguazú', REL: 'Trelew',
+  PMY: 'Puerto Madryn'
+};
+
+export function resolveFlightDestination(trip, leg) {
+  const destinations = trip?.destinations || [];
+  const flightDate = date(leg?.date);
+  const codes = [String(leg?.to || '').toUpperCase(), String(leg?.from || '').toUpperCase()];
+  for (const code of codes) {
+    const city = FLIGHT_AIRPORT_CITY[code];
+    if (!city) continue;
+    const candidates = destinations.filter(d => cityMatches(city, d.name));
+    if (candidates.length === 1) return candidates[0];
+
+    if (city === 'Buenos Aires' && flightDate && candidates.length > 1) {
+      if (flightDate >= '2027-03-21') {
+        const returning = candidates.filter(d => /return|departure/i.test(d.name));
+        if (returning.length === 1) return returning[0];
+      }
+      if (flightDate <= '2027-03-09') {
+        const arriving = candidates.filter(d => /arrival/i.test(d.name));
+        if (arriving.length === 1) return arriving[0];
+      }
+    }
+  }
+  return null;
+}
+
 export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) {
   const item = queue?.[emailId];
   if (!item || item.status !== 'pending' || item.cancellationFlag ||
@@ -289,31 +321,49 @@ export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) 
   const legs = item.segments;
   if (!Array.isArray(legs) || legs.length < 2)
     throw new Error('This email does not contain multiple parsed flights.');
-  const idx = destinationIndex(trip?.destinations, destinationId);
-  if (idx < 0) throw new Error('Choose a destination.');
-  const dest = trip.destinations[idx];
-  const flights = Array.isArray(dest.flights) ? dest.flights : [];
-  const now = Date.now(), updates = {}, paths = [], reserved = new Set();
+
+  const now = Date.now(), updates = {}, paths = [], reservedByDestination = {};
   for (const leg of legs) {
     const number = safe(leg.number, 30).toUpperCase();
     const flightDate = date(leg.date);
     const from = safe(leg.from, 90), to = safe(leg.to, 90);
-    if (!number || !flightDate || !from || !to || !/^([01]\d|2[0-3]):[0-5]\d$/.test(leg.departure || ''))
+    if (!number || !flightDate || !from || !to ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(leg.departure || ''))
       throw new Error('Verify each leg’s flight number, airports, date and departure time.');
+
+    const resolved = resolveFlightDestination(trip, leg);
+    // Backward compatibility for a two-leg review manually routed before
+    // automatic routing existed. Never use one fallback destination for a
+    // package with 3+ legs, because that would put the whole itinerary in one city.
+    const fallback = legs.length === 2 && destinationId
+      ? trip.destinations?.[destinationIndex(trip.destinations, destinationId)] : null;
+    const dest = resolved || fallback;
+    if (!dest)
+      throw new Error('Could not determine the correct destination for ' + number +
+        '. Check the itinerary before approving.');
+    const idx = destinationIndex(trip.destinations, dest.id);
+    if (idx < 0) throw new Error('Resolved flight destination is not in this trip.');
+
+    const flights = Array.isArray(dest.flights) ? dest.flights : [];
     const matching = flights.map((row, i) => ({ row, i })).filter(({ row }) =>
       norm(row.number) === norm(number) &&
       (!row.date || row.date === flightDate) &&
       (!row.from || norm(row.from) === norm(from)) &&
       (!row.to || norm(row.to) === norm(to)));
     if (matching.length > 1) throw new Error('Ambiguous existing flight: resolve duplicates manually.');
+
+    const reserved = reservedByDestination[idx] || 0;
     const path = 'trip/destinations/' + idx + '/flights/' +
-      (matching.length ? matching[0].i : flights.length + reserved.size);
+      (matching.length ? matching[0].i : flights.length + reserved);
     if (paths.includes(path)) throw new Error('Two legs unexpectedly resolve to the same flight.');
-    const record = { status: 'confirmed', airline: safe(item.airline || 'Airline', 100),
+
+    const record = {
+      status: 'confirmed', airline: safe(item.airline || 'Airline', 100),
       number, date: flightDate, from, to,
       departure: safe(leg.departure, 20), arrival: safe(leg.arrival, 20),
       arrivalDate: leg.arrivalDate ? date(leg.arrivalDate) : '',
-      source: 'Gmail review' };
+      source: 'Gmail review'
+    };
     if (matching.length) {
       const previous = matching[0].row;
       updates[path + '/reviewedEmails/' + emailId] = true;
@@ -322,17 +372,21 @@ export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) 
           updates[path + '/' + key] = value;
       }
     } else {
-      reserved.add(path);
-      updates[path] = { ...record, id: 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 45) +
-        '_' + paths.length, reviewedEmails: { [emailId]: true }, reviewedAt: now };
+      reservedByDestination[idx] = reserved + 1;
+      updates[path] = {
+        ...record,
+        id: 'gmail_' + emailId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 45) + '_' + paths.length,
+        reviewedEmails: { [emailId]: true }, reviewedAt: now
+      };
     }
     paths.push(path);
   }
+
   updates['gmailImport/reviewQueue/' + emailId + '/status'] = 'approved';
   updates['gmailImport/reviewQueue/' + emailId + '/reviewedAt'] = now;
-  updates['gmailImport/reviewQueue/' + emailId + '/destinationId'] = String(destinationId);
+  updates['gmailImport/reviewQueue/' + emailId + '/destinationId'] = 'multi';
   updates['trip/emailImports/' + emailId] = {
-    category: 'flight', destinationId: String(destinationId), targetPath: paths[0],
+    category: 'flight', destinationId: 'multi', targetPath: paths[0],
     targetPaths: paths, importedAt: now
   };
   return { updates, path: paths.join(', '), result: 'linked ' + paths.length + ' flights' };
