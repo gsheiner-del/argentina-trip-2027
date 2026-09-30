@@ -4,7 +4,7 @@ import CostTracker from './CostTracker';
 import StayOptions from './StayOptions';
 import NearbyExplore from './NearbyExplore';
 
-export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
+export default function DestinationDetail({ trip, destinations, selectedId, userRole, onUpdateBooking, onConfirmFlight, onRemoveFlight, onUpdateCosts, onSelectPreferred, onImportScreenshot, onMoveStay, onArchiveStay }) {
   const [expandedId, setExpandedId] = useState(selectedId || (destinations ? destinations[0]?.id : null));
   const [activeTab, setActiveTab] = useState('stays');
   const [editingBookingId, setEditingBookingId] = useState(null);
@@ -93,6 +93,8 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
                   <div className="flight-header">
                     <h4>{flight.airline} {flight.number}</h4>
                     <span className="status">{flight.status || 'Planning'}</span>
+                    {/confirm/i.test(flight.status || '') && flight.trackingEnabled &&
+                      <span className="badge">Tracking</span>}
                     {flight.reviewedEmails && <span className="badge">✓ Approved via Gmail</span>}
                   </div>
                   {flight.date && <p>📅 {flight.date}</p>}
@@ -117,10 +119,21 @@ export default function DestinationDetail({ trip, destinations, selectedId, user
                           }}>Save</button>
                           <button onClick={() => setEditingBookingId(null)}>Cancel</button>
                         </div>
-                      ) : <button onClick={() => {
-                        setEditingBookingId('flight-' + idx);
-                        setBookingLink(flight.bookingLink || '');
-                      }}>{flight.bookingLink ? 'Edit link' : '+ Add airline link'}</button>}
+                      ) : <>
+                        <button onClick={() => {
+                          setEditingBookingId('flight-' + idx);
+                          setBookingLink(flight.bookingLink || '');
+                        }}>{flight.bookingLink ? 'Edit link' : '+ Add airline link'}</button>
+                        {!/confirm/i.test(flight.status || '') && !/cancel/i.test(flight.status || '') &&
+                          <button onClick={() => onConfirmFlight?.(current.id, idx)}>
+                            Mark confirmed
+                          </button>}
+                        <button className="remove-btn" onClick={() => {
+                          if (window.confirm('Remove this flight from the itinerary?')) {
+                            onRemoveFlight?.(current.id, idx);
+                          }
+                        }}>Remove from itinerary</button>
+                      </>}
                     </div>
                   )}
                 </article>
