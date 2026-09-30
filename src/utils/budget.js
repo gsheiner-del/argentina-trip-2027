@@ -117,13 +117,31 @@ export function selectedHotelCosts(trip, quote) {
 }
 
 export function bookedDomesticFlights(trip, quote) {
-  let total=0,count=0,unpriced=0;
-  const seen=new Set();
+  const confirmed = [];
+  const seen = new Set();
   for (const dest of trip?.destinations || []) for (const f of dest.flights || []) {
     if (!f || !/confirm|booked/i.test(f.status || '') || /cancel/i.test(f.status || '')) continue;
     if (/^(TLV|BEN GURION)$/i.test(f.from || '') || /^(TLV|BEN GURION)$/i.test(f.to || '')) continue;
     const key=[f.number,f.date,f.from,f.to].join('|');
-    if (seen.has(key)) continue; seen.add(key);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    confirmed.push(f);
+  }
+
+  // When the internal flights were purchased as one package, keep the real
+  // payment as one auditable budget record instead of inventing per-leg prices.
+  const pack = trip?.budget?.actualDomesticFlights;
+  if (pack && pack.amount !== '' && pack.amount != null && Number.isFinite(Number(pack.amount))) {
+    let usd = Number.isFinite(pack.usdValue) ? pack.usdValue : null;
+    if (usd === null) {
+      try { usd = currencyToUsd(Number(pack.amount), pack.currency || 'USD', quote); }
+      catch { return { total: 0, count: 0, unpriced: 1, flightCount: confirmed.length, package: true }; }
+    }
+    return { total: usd, count: 1, unpriced: 0, flightCount: confirmed.length, package: true };
+  }
+
+  let total=0,count=0,unpriced=0;
+  for (const f of confirmed) {
     let usd=Number.isFinite(f.priceUsd)?f.priceUsd:null;
     if (usd===null && f.price!=null && f.price!=='' && Number.isFinite(Number(f.price))) {
       try { usd=currencyToUsd(Number(f.price),f.currency || 'USD',quote); } catch {}
@@ -131,5 +149,5 @@ export function bookedDomesticFlights(trip, quote) {
     if (usd===null) {unpriced++;continue;}
     total+=usd;count++;
   }
-  return {total,count,unpriced};
+  return {total,count,unpriced,flightCount:confirmed.length,package:false};
 }
