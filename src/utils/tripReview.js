@@ -221,6 +221,7 @@ export function prepareApproval(trip, queue, emailId, options) {
       number: safe(input.number, 30).toUpperCase(), date: flightDate,
       from: safe(input.from, 90), to: safe(input.to, 90),
       departure: safe(input.departure, 80), arrival: safe(input.arrival, 80),
+      bookingReference: safe(input.bookingReference, 20).toUpperCase(),
       notes: safe(input.notes, 350) };
     field = 'flights';
   } else {
@@ -359,6 +360,7 @@ export function prepareMultiFlightApproval(trip, queue, emailId, destinationId) 
 
     const record = {
       status: 'confirmed', airline: safe(item.airline || 'Airline', 100),
+      bookingReference: safe(item.bookingReference, 20).toUpperCase(),
       number, date: flightDate, from, to,
       departure: safe(leg.departure, 20), arrival: safe(leg.arrival, 20),
       arrivalDate: leg.arrivalDate ? date(leg.arrivalDate) : '',
