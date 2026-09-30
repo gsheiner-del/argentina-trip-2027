@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-30-pdf-flight-import-v13';
+const IMPORTER_VERSION = '2026-09-30-flight-reference-v14';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -65,6 +65,18 @@ function bookingGroup_(subject, body) {
   const key = (booking?.[1] || base).toUpperCase();
   const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key);
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/, '');
+}
+
+function flightBookingReference_(subject, body) {
+  const source = String(subject || '') + '\n' + String(body || '');
+  // Prefer the airline's own PNR when a travel-agent itinerary also contains
+  // an agency reservation code.
+  const airlinePnr = source.match(/AIRLINE\s+RESERVATION\s+CODE\s*[:#]?\s*([A-Z0-9]{5,12})\s*(?:\(AR\))?/i);
+  if (airlinePnr) return airlinePnr[1].toUpperCase();
+  const booking = source.match(/\bbooking\s+code\s*[:#]?\s*([A-Z0-9]{5,12})\b/i);
+  if (booking) return booking[1].toUpperCase();
+  const spanish = source.match(/C[ÓO]DIGO\s+DE\s+RESERVACI[ÓO]N\s*[:#]?\s*([A-Z0-9]{5,12})\b/i);
+  return spanish ? spanish[1].toUpperCase() : '';
 }
 
 // Date extraction deliberately uses only labelled booking/flight fields. A generic
@@ -447,6 +459,8 @@ function extract_(message) {
     date: extracted.date || '',
     number: extracted.number || '',
     airline: extracted.airline || '',
+    bookingReference: category === 'flight' || category === 'flight_extra'
+      ? flightBookingReference_(subject, body) : '',
     from: extracted.from || '',
     to: extracted.to || '',
     departure: extracted.departure || '', arrival: extracted.arrival || '',
