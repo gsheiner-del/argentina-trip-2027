@@ -152,3 +152,20 @@ If you already installed an **hourly** Apps Script trigger, open Triggers and
 edit or delete it, then add the **Day timer → 12 AM to 1 AM** trigger (Israel
 project time zone). The Gmail importer itself is unchanged, so you do not need
 to copy a second script just to change its schedule.
+
+
+## PDF flight itineraries
+
+Some airline/travel-agent emails contain no usable itinerary in the Gmail body and attach a PDF instead.
+The importer can convert PDF attachments to a temporary Google Doc, read the extracted text, and immediately
+delete the temporary Doc. No PDF body text is stored in Firebase.
+
+One-time Apps Script setup:
+1. Open the Apps Script project.
+2. In **Services**, click **+ Add a service**.
+3. Add **Drive API** (identifier: `Drive`).
+4. Save the project and authorize the additional Drive permission when prompted.
+5. Run `rescanAllTripMail()` once.
+
+The nightly trigger continues to call `syncGmailToFirebase()`. Existing reviewed records are never reset.
+PDF extraction is currently used for text-based/OCR-able travel documents such as Aerolíneas Argentinas itineraries.
