@@ -4,7 +4,7 @@
  * Required Script Property: FIREBASE_SERVICE_ACCOUNT_JSON (entire service-account JSON).
  * Before use: configure Firebase Database Rules as described in GMAIL_SYNC.md.
  */
-const IMPORTER_VERSION = '2026-09-30-flight-reference-v14';
+const IMPORTER_VERSION = '2026-10-06-drive-rate-limit-v15';
 const TRIP_CONFIG = {
   label: 'Argentina2027',
   expectedAccount: 'gsheiner@gmail.com',
@@ -174,12 +174,34 @@ function pdfAttachmentText_(message) {
     let convertedId = '';
     try {
       const blob = attachment.copyBlob();
-      const converted = Drive.Files.create({
-        name: 'Argentina2027 temporary PDF extraction',
-        mimeType: 'application/vnd.google-apps.document'
-      }, blob, { ocrLanguage: 'es', fields: 'id' });
+      let converted = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          converted = Drive.Files.create({
+            name: 'Argentina2027 temporary PDF extraction',
+            mimeType: 'application/vnd.google-apps.document'
+          }, blob, { ocrLanguage: 'es', fields: 'id' });
+          break;
+        } catch (error) {
+          const messageText = String(error && error.message ? error.message : error);
+          const transient = /rate limit|user rate limit|quota|too many requests|429/i.test(messageText);
+          if (!transient || attempt === 3) throw error;
+          Utilities.sleep(1000 * Math.pow(2, attempt));
+        }
+      }
+      if (!converted || !converted.id)
+        throw new Error('Drive PDF conversion completed without returning a document ID.');
       convertedId = converted.id;
-      const text = DocumentApp.openById(convertedId).getBody().getText();
+      let text = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          text = DocumentApp.openById(convertedId).getBody().getText();
+          break;
+        } catch (error) {
+          if (attempt === 2) throw error;
+          Utilities.sleep(500 * Math.pow(2, attempt));
+        }
+      }
       if (text) chunks.push(text);
     } finally {
       if (convertedId) {
@@ -513,13 +535,22 @@ function flightSignature_(segments) {
   return segments.map(leg =>
     [leg.number, leg.from, leg.to, leg.date].join('|')).join(';');
 }
-function buildFlightDonors_(messages) {
+function cachedExtract_(message, cache) {
+  const id = message.getId();
+  if (Object.prototype.hasOwnProperty.call(cache, id)) return cache[id];
+  const parsed = extract_(message);
+  cache[id] = parsed;
+  return parsed;
+}
+
+function buildFlightDonors_(messages, extractionCache) {
   const donorMap = {};
   const ambiguous = new Set();
+  const cache = extractionCache || {};
   for (const message of messages) {
     const key = flightPairKey_(message);
     if (!key) continue;
-    const parsed = extract_(message);
+    const parsed = cachedExtract_(message, cache);
     if (!parsed || !Array.isArray(parsed.segments) ||
         parsed.segments.length < 1 ||
         parsed.segments.some(leg => !leg.number || !leg.date || !leg.from || !leg.to)) continue;
@@ -674,11 +705,12 @@ function syncGmailToFirebase() {
   const incoming = {};
   let matched = 0;
   const messages = allLabelMessages_(label);
-  const donors = buildFlightDonors_(messages);
+  const extractionCache = {};
+  const donors = buildFlightDonors_(messages, extractionCache);
   for (const message of messages) {
     const id = 'm_' + message.getId();
     if (existing[id] || incoming[id]) continue; // Never reset past approvals.
-    const parsed = linkedFlightDetails_(message, extract_(message), donors);
+    const parsed = linkedFlightDetails_(message, cachedExtract_(message, extractionCache), donors);
     if (parsed) {
       // Even an off-route booking deserves manual review. Do not hide new
       // bookings solely because their city isn't in the current itinerary.
@@ -711,12 +743,13 @@ function backfillGmailMetadata() {
   const changes = {};
   let examined = 0, enriched = 0;
   const messages = allLabelMessages_(label);
-  const donors = buildFlightDonors_(messages);
+  const extractionCache = {};
+  const donors = buildFlightDonors_(messages, extractionCache);
   for (const message of messages) {
     const id = 'm_' + message.getId();
     if (!existing[id]) continue;
     examined++;
-    const parsed = linkedFlightDetails_(message, extract_(message), donors);
+    const parsed = linkedFlightDetails_(message, cachedExtract_(message, extractionCache), donors);
     if (!parsed) continue;
     const missing = missingFields_(existing[id], parsed);
     const recovered = recoverAirbnbReviewFields_(existing[id], parsed);
